@@ -71,12 +71,15 @@ non applicable, jamais créé à l'aveugle.
 ## Installation
 
 ```bash
-cd omega-jail
+[ -d omega-jail ] && echo "ℹ️ Déjà extrait ici, étape ignorée." || tar -xzf omega-jail.tar.gz
+cd omega-jail/
+chmod +x install.sh
 ./install.sh
 ```
 
-Crée l'environnement virtuel et installe omega-jail (aucun privilège
-root nécessaire pour cette étape).
+`install.sh` crée l'environnement virtuel, installe omega-jail
+(`pip install -e .`, aucun privilège root nécessaire pour cette étape)
+et rend `omega-jail.sh`/`install.sh` exécutables.
 
 ## Utilisation
 

@@ -1,7 +1,28 @@
+# Environnement Python
+venv/
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.pytest_cache/
-*.egg-info/
+
+# editeurs
+*~
+*.bak
+*.swp
+
+# fichiers systeme
+.DS_Store
+Thumbs.db
+
+# couverture de tests
+.coverage
+htmlcov/
+
+# archives distribuables
+omega-jail.tar.gz
+omega-jail-*.tar.gz
+dist/
+build/

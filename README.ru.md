@@ -73,12 +73,15 @@ Active Defense включён, настроен дополнительный м�
 ## Установка
 
 ```bash
-cd omega-jail
+[ -d omega-jail ] && echo "ℹ️ Уже распаковано здесь, шаг пропущен." || tar -xzf omega-jail.tar.gz
+cd omega-jail/
+chmod +x install.sh
 ./install.sh
 ```
 
-Создаёт виртуальное окружение и устанавливает omega-jail (для этого
-шага права root не требуются).
+`install.sh` создаёт виртуальное окружение, устанавливает omega-jail
+(`pip install -e .`, для этого шага права root не требуются) и делает
+`omega-jail.sh`/`install.sh` исполняемыми.
 
 ## Использование
 

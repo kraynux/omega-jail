@@ -64,11 +64,14 @@ Tailscale,"已封禁/未封禁"的区别依然可见。这个桥接机制始终�
 ## 安装
 
 ```bash
-cd omega-jail
+[ -d omega-jail ] && echo "ℹ️ 已在此解压,跳过此步骤。" || tar -xzf omega-jail.tar.gz
+cd omega-jail/
+chmod +x install.sh
 ./install.sh
 ```
 
-创建虚拟环境并安装 omega-jail(此步骤不需要 root 权限)。
+`install.sh` 会创建虚拟环境、安装 omega-jail(`pip install -e .`,此
+步骤不需要 root 权限),并将 `omega-jail.sh`/`install.sh` 设为可执行。
 
 ## 使用方法
 
