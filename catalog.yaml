@@ -1,0 +1,89 @@
+# Catalogue des jails fail2ban preconfigures pour omega-serv/omega-waf.
+# Donnees pures - voir OMEGA-JAIL_PLAN-DETAILLE.md pour la justification
+# de chaque entree (seuils, sources de logs). Ajouter un jail = ajouter
+# une entree ici, jamais une fonction Python dediee.
+#
+# logpath_key reference un chemin resolu par detect.py (jamais un
+# chemin en dur) :
+#   waf_magnet_blocklist_log  -> blocklist_log d'omega-waf.lua
+#   waf_magnet_alerts_log     -> alerts_log d'omega-waf.lua (JSON ou texte)
+#   waf_alerts_log            -> log d'alerte WAF natif omega-serv (JSON)
+#   active_defense_log        -> log enrichi Active Defense omega-serv (JSON)
+#   access_log                -> log d'acces combine omega-serv
+#
+# format: "plain" | "json" | "auto" (determine a l'installation via la
+# config reelle d'omega-waf.lua, use_json_logs)
+
+jails:
+  - name: omega-waf-blocklist-sync
+    description: >
+      Miroir reseau immediat des bannissements deja decides par
+      omega-waf.lua (AJOUT BLOCKLIST). Zero ambiguite : le script a
+      deja tranche.
+    logpath_key: waf_magnet_blocklist_log
+    format: plain
+    failregex: '^\[.*\] AJOUT BLOCKLIST ip=<HOST> reason=.*$'
+    maxretry: 1
+    findtime: 600
+    bantime: 86400
+
+  - name: omega-waf-magnet-alerts
+    description: >
+      Repetition d'alertes omega-waf.lua par IP. Seuil aligne sur
+      suspicious_threshold=3 deja choisi dans omega-waf.lua, pour que
+      le ban reseau arrive au meme rythme que l'auto-ban applicatif
+      du script.
+    logpath_key: waf_magnet_alerts_log
+    format: auto
+    failregex_json: '"ip":"<HOST>"'
+    failregex_plain: '^\[.*\] ip=<HOST> method='
+    maxretry: 3
+    findtime: 300
+    bantime: 43200
+
+  - name: omega-serv-waf-block
+    description: >
+      Ne reagit qu'aux blocages reels du WAF natif omega-serv
+      (action=block), jamais au log-only - evite tout ban pendant un
+      reglage WAF en cours.
+    logpath_key: waf_alerts_log
+    format: json
+    failregex: '"remote_ip": "<HOST>".*"action": "block"'
+    maxretry: 3
+    findtime: 600
+    bantime: 43200
+
+  - name: omega-serv-active-defense
+    description: >
+      Active Defense omega-serv a deja qualifie la source comme
+      hostile ou contenue. Ignore volontairement "suspicious" (trop
+      tot, faux positifs probables).
+    logpath_key: active_defense_log
+    format: json
+    failregex: '"remote_ip": "<HOST>".*"level": "(?:hostile|contained)"'
+    maxretry: 2
+    findtime: 900
+    bantime: 86400
+
+  - name: omega-serv-auth-bruteforce
+    description: >
+      Brute-force sur une zone protegee (Basic Auth) d'omega-serv.
+      Generique : ne depend pas de connaitre les chemins des zones.
+    logpath_key: access_log
+    format: plain
+    failregex: '^<HOST> \S+ \S+ \[[^\]]+\] ".*" 401'
+    maxretry: 5
+    findtime: 300
+    bantime: 3600
+
+  - name: omega-serv-scan
+    description: >
+      Scan de chemins (dirbusting) sur omega-serv. Seuil haut et
+      fenetre courte pour ne jamais confondre avec une faute de frappe
+      isolee d'un visiteur legitime.
+    logpath_key: access_log
+    format: plain
+    failregex: '^<HOST> \S+ \S+ \[[^\]]+\] ".*" 404'
+    maxretry: 15
+    findtime: 120
+    bantime: 3600
