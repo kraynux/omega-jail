@@ -26,3 +26,6 @@ omega-jail.tar.gz
 omega-jail-*.tar.gz
 dist/
 build/
+
+# chemin omega-serv enregistre a l'installation - propre a chaque machine
+.serv-root

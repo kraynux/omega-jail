@@ -4,15 +4,23 @@ explicitement pour ecrire quoi que ce soit) ; --apply necessite root
 ici en plus de l'elevation deja faite par omega-jail.sh, pour un
 message d'erreur clair meme si la CLI est invoquee directement.
 
---serv-root reste un argument explicite obligatoire : aucune
-convention universelle ne permet de deviner ou se trouve une
-installation omega-serv sur un serveur reel (l'arborescence ~/DEV/ de
-la machine de developpement n'a rien a voir avec un deploiement reel,
-2026-10-17). En revanche, les jails doivent toujours aller dans le
-VRAI dossier fail2ban de la machine - --jail-d-dir/--filter-d-dir/
---action-d-dir sont donc auto-detectes par defaut (autodetect.py),
-avec verification honnete que /etc/fail2ban existe reellement plutot
-que de l'assumer en silence."""
+Aucune convention universelle ne permet de deviner ou se trouve une
+installation omega-serv sur un serveur reel (l'arborescence ~/DEV/
+d'une machine de developpement n'a rien a voir avec un deploiement
+reel, 2026-10-17) - mais le but d'un installateur reste de produire
+une commande copiable-collable, jamais un modele a comprendre et
+modifier a la main (retour utilisateur 2026-10-18). install.sh
+demande donc le chemin UNE SEULE FOIS a l'installation et l'enregistre
+dans `.serv-root` (jamais commite) a la racine du projet - --serv-root
+n'est alors plus necessaire sur la ligne de commande ensuite. Il reste
+un echappatoire explicite si ce fichier est absent ou si on veut cibler
+un autre omega-serv ponctuellement.
+
+Les repertoires fail2ban (--jail-d-dir/--filter-d-dir/--action-d-dir),
+eux, sont auto-detectes par defaut (autodetect.py), avec verification
+honnete que /etc/fail2ban existe reellement plutot que de l'assumer en
+silence - leur emplacement EST une convention quasi universelle,
+contrairement a celui d'omega-serv."""
 from __future__ import annotations
 
 import argparse
@@ -25,6 +33,8 @@ from omega_jail.autodetect import find_fail2ban_base_dir
 from omega_jail.install import InstallConfig, InstallReport, apply, prepare
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR
 
+SERV_ROOT_FILENAME = ".serv-root"
+
 _OUTCOME_LABELS: dict[str, str] = {
     "create": "CREE",
     "overwrite_forced": "ECRASE (--force)",
@@ -36,6 +46,17 @@ _OUTCOME_LABELS: dict[str, str] = {
 
 def _default_omega_jail_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
+
+
+def _saved_serv_root(omega_jail_root: Path) -> Path | None:
+    """Chemin enregistre par install.sh (une seule fois, interactivement)
+    - jamais devine, jamais un placeholder : soit l'utilisateur l'a
+    confirme a l'installation, soit ce fichier n'existe pas."""
+    saved_path = omega_jail_root / SERV_ROOT_FILENAME
+    if not saved_path.is_file():
+        return None
+    content = saved_path.read_text(encoding="utf-8").strip()
+    return Path(content) if content else None
 
 
 def _print_report(report: InstallReport) -> None:
@@ -55,7 +76,12 @@ def _default_reload() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omega-jail", description="Catalogue de jails fail2ban pour omega-serv/omega-waf")
-    parser.add_argument("--serv-root", required=True, type=Path, help="Racine de l'installation omega-serv a proteger")
+    parser.add_argument(
+        "--serv-root",
+        type=Path,
+        default=None,
+        help="Racine de l'installation omega-serv (par defaut, celle enregistree par install.sh)",
+    )
     parser.add_argument("--serv-config", default=None, help="Chemin --config a passer a omega-serv (si non standard)")
     parser.add_argument("--omega-jail-root", type=Path, default=None, help="Racine du projet omega-jail (par defaut, auto-detectee)")
     parser.add_argument("--catalog", type=Path, default=None, help="Chemin vers catalog.yaml (par defaut, celui du projet)")
@@ -69,6 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="Ecraser un jail.d existant portant le meme nom de fichier")
     parser.add_argument("--apply", action="store_true", help="Ecrit reellement les fichiers (defaut : dry-run)")
     return parser
+
+
+def _resolve_serv_root(args: argparse.Namespace, omega_jail_root: Path) -> Path | None:
+    explicit: Path | None = args.serv_root
+    if explicit is not None:
+        return explicit
+    return _saved_serv_root(omega_jail_root)
 
 
 def _resolve_fail2ban_dirs(args: argparse.Namespace) -> tuple[Path, Path, Path] | None:
@@ -89,6 +122,15 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     omega_jail_root = args.omega_jail_root or _default_omega_jail_root()
 
+    serv_root = _resolve_serv_root(args, omega_jail_root)
+    if serv_root is None:
+        print(
+            "erreur : aucun chemin omega-serv enregistre - relancez ./install.sh pour le renseigner, "
+            "ou precisez-le avec --serv-root <chemin réel vers votre installation omega-serv>.",
+            file=sys.stderr,
+        )
+        return 1
+
     fail2ban_dirs = _resolve_fail2ban_dirs(args)
     if fail2ban_dirs is None:
         print(
@@ -100,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     jail_d_dir, filter_d_dir, action_d_dir = fail2ban_dirs
 
     config = InstallConfig(
-        serv_root=args.serv_root,
+        serv_root=serv_root,
         omega_jail_root=omega_jail_root,
         jail_d_dir=jail_d_dir,
         filter_d_dir=filter_d_dir,

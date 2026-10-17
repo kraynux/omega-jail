@@ -78,27 +78,31 @@ chmod +x install.sh
 ```
 
 `install.sh` crée l'environnement virtuel, installe omega-jail
-(`pip install -e .`, aucun privilège root nécessaire pour cette étape)
-et rend `omega-jail.sh`/`install.sh` exécutables.
+(`pip install -e .`, aucun privilège root nécessaire pour cette étape),
+rend `omega-jail.sh`/`install.sh` exécutables — puis cherche une
+installation omega-serv sous `$HOME` (reconnue par la présence
+d'`omega-serv.sh`) : un seul candidat trouvé, il est enregistré
+automatiquement ; zéro ou plusieurs, il vous le demande une seule
+fois. Ce chemin est mémorisé dans `.serv-root` (jamais commité) :
+vous n'avez ensuite jamais besoin de le retaper.
 
 ## Utilisation
 
 Dry-run par défaut — n'écrit jamais rien tant que `--apply` n'est pas
-explicitement demandé. `--serv-root` reste obligatoire (aucune
-convention ne permet de deviner où vit une installation omega-serv sur
-un serveur réel) ; en revanche, les jails doivent toujours aller dans
+explicitement demandé. Aucun chemin à taper : omega-serv est celui
+enregistré par `install.sh`, et les jails doivent toujours aller dans
 le VRAI dossier fail2ban de la machine — `/etc/fail2ban/` est donc
-détecté et vérifié automatiquement, sans avoir à le préciser :
+aussi détecté et vérifié automatiquement :
 
 ```bash
-./omega-jail.sh --serv-root /chemin/vers/omega-serv
+./omega-jail.sh
 ```
 
 Installation réelle (nécessite root — écriture sous `/etc/fail2ban/`,
 rechargement de `fail2ban-client`) :
 
 ```bash
-./omega-jail.sh --serv-root /chemin/vers/omega-serv --apply
+./omega-jail.sh --apply
 ```
 
 Si `/etc/fail2ban/` n'existe pas (fail2ban non installé), la commande
@@ -106,18 +110,21 @@ Si `/etc/fail2ban/` n'existe pas (fail2ban non installé), la commande
 par erreur.
 
 Options utiles :
-- `--jail-d-dir`/`--filter-d-dir`/`--action-d-dir <chemin>` : à
-  préciser seulement si fail2ban n'est pas installé à l'emplacement
-  standard.
-- `--only <nom-du-jail>` : n'installer qu'une seule entrée du catalogue.
-- `--force` : écraser un `jail.d/omega-jail-<nom>.conf` déjà présent
-  (sans cette option, une collision de nom de fichier est toujours
-  signalée et jamais écrasée silencieusement).
-- `--tailscale-cidr <cidr>` : plage à considérer comme Tailscale, si
-  différente de `100.64.0.0/10`.
-- `--serv-config <chemin>` : à préciser seulement si la config
-  d'omega-serv ne se trouve pas à l'emplacement standard
-  (`config/omega-serve.json` sous `--serv-root`).
+- `--serv-root` : prend en argument le chemin d'un autre omega-serv à
+  cibler ponctuellement, au lieu de celui enregistré par `install.sh`.
+- `--jail-d-dir`, `--filter-d-dir`, `--action-d-dir` : prennent chacune
+  en argument un chemin de répertoire, à préciser seulement si
+  fail2ban n'est pas installé à l'emplacement standard.
+- `--only` : prend en argument le nom d'un jail du catalogue, pour
+  n'en installer qu'une seule entrée.
+- `--force` : écrase un fichier `jail.d/` déjà présent pour un jail du
+  catalogue (sans cette option, une collision de nom de fichier est
+  toujours signalée et jamais écrasée silencieusement).
+- `--tailscale-cidr` : prend en argument une plage réseau au format
+  CIDR à considérer comme Tailscale, si différente de `100.64.0.0/10`.
+- `--serv-config` : prend en argument un chemin, à préciser seulement
+  si la config d'omega-serv ne se trouve pas à l'emplacement standard
+  (`config/omega-serve.json` sous le chemin omega-serv utilisé).
 
 Chaque exécution est sûre à relancer : un jail déjà créé par un run
 précédent (ou par n'importe quel jail externe surveillant déjà le même

@@ -23,9 +23,9 @@ warn() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 err()  { echo -e "${RED}❌ $1${NC}"; }
 tip()  { echo -e "${WHITE}💡 $1${NC}"; }
 
-echo -e "${WHITE}    ░▒▓███████████████████████████████████████▓▒░${NC}"
+echo -e "${WHITE}    ░▒▓███████████████████████████████████████████████▓▒░${NC}"
 echo -e "${WHITE}    ░▒▓ Ω M E G A - J A I L — I N S T A L L A T I O N ▓▒░${NC}"
-echo -e "${WHITE}    ░▒▓███████████████████████████████████████▓▒░${NC}"
+echo -e "${WHITE}    ░▒▓███████████████████████████████████████████████▓▒░${NC}"
 echo ""
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -81,7 +81,58 @@ else
     tip "Installez-le via le gestionnaire de paquets de votre distribution (pacman -S fail2ban, apt install fail2ban)."
 fi
 
+# -------------------------------------------------------------------------
+# 5. Chemin d'omega-serv a proteger - enregistre UNE FOIS ici
+#    (.serv-root, jamais commite - voir .gitignore), pour que les
+#    commandes affichees ci-dessous et ./omega-jail.sh soient ensuite
+#    utilisables telles quelles, sans placeholder a remplacer a la
+#    main (retour utilisateur 2026-10-18 : "le but d'un installateur
+#    c'est de pouvoir copier-coller une commande, pas devoir la
+#    comprendre et la modifier"). Recherche d'abord automatiquement
+#    sous $HOME (retour utilisateur : "l'installateur doit pouvoir
+#    trouver le chemin de omega-serv, normalement dans le home") -
+#    reconnu par la presence d'omega-serv.sh, jamais par le seul nom
+#    du dossier. Un seul candidat trouve -> utilise directement, sans
+#    demander (meme principe que la detection d'ancienne installation
+#    dans install.sh d'omega-serv : jamais d'action sur un signal
+#    ambigu, mais aucune question posee pour autant quand le signal
+#    est clair). Zero ou plusieurs candidats -> on demande a l'humain,
+#    une seule fois.
+# -------------------------------------------------------------------------
+echo ""
+info "Recherche d'une installation omega-serv sous \$HOME..."
+mapfile -t SERV_CANDIDATES < <(find "$HOME" -maxdepth 4 -name "omega-serv.sh" -not -path "*/.*" 2>/dev/null | xargs -r -n1 dirname | sort -u)
+
+SERV_ROOT_INPUT=""
+if [ "${#SERV_CANDIDATES[@]}" -eq 1 ]; then
+    SERV_ROOT_INPUT="${SERV_CANDIDATES[0]}"
+    ok "Installation omega-serv détectée automatiquement : $SERV_ROOT_INPUT"
+elif [ "${#SERV_CANDIDATES[@]}" -gt 1 ]; then
+    warn "Plusieurs installations omega-serv trouvées sous \$HOME, aucune choisie automatiquement (ambigu) :"
+    for c in "${SERV_CANDIDATES[@]}"; do echo "    $c"; done
+    read -rp "Collez le chemin exact à utiliser (laisser vide pour le préciser plus tard) : " SERV_ROOT_INPUT
+else
+    warn "Aucune installation omega-serv trouvée automatiquement sous \$HOME."
+    read -rp "Chemin de l'installation omega-serv à protéger (laisser vide pour le préciser plus tard) : " SERV_ROOT_INPUT
+fi
+
+if [ -n "$SERV_ROOT_INPUT" ]; then
+    SERV_ROOT_INPUT="${SERV_ROOT_INPUT%/}"
+    if [ -f "$SERV_ROOT_INPUT/omega-serv.sh" ]; then
+        echo "$SERV_ROOT_INPUT" > "$SCRIPT_DIR/.serv-root"
+        ok "Chemin enregistré : $SERV_ROOT_INPUT"
+    else
+        warn "Aucun omega-serv.sh trouvé sous $SERV_ROOT_INPUT - chemin non enregistré."
+        tip "Vous pourrez le préciser explicitement avec --serv-root au lancement."
+    fi
+fi
+
 echo ""
 ok "Installation terminée."
-tip "Aperçu sans rien écrire : ${SCRIPT_DIR}/omega-jail.sh --serv-root /chemin/vers/omega-serv"
-tip "Installation réelle (nécessite root) : ${SCRIPT_DIR}/omega-jail.sh --serv-root /chemin/vers/omega-serv --apply"
+if [ -f "$SCRIPT_DIR/.serv-root" ]; then
+    tip "Aperçu sans rien écrire : ${SCRIPT_DIR}/omega-jail.sh"
+    tip "Installation réelle (nécessite root) : ${SCRIPT_DIR}/omega-jail.sh --apply"
+else
+    tip "Relancez ./install.sh pour enregistrer le chemin d'omega-serv, ou précisez-le"
+    tip "explicitement : ${SCRIPT_DIR}/omega-jail.sh --serv-root <chemin réel> --apply"
+fi

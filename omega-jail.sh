@@ -33,9 +33,9 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 
 echo -e "${WHITE}${NC}"
-echo -e "${WHITE}    ░▒▓███████████████████████▓▒░${NC}"
+echo -e "${WHITE}    ░▒▓██████████████████████▓▒░${NC}"
 echo -e "${WHITE}    ░▒▓ Ω M E G A - J A I L █▓▒░${NC}"
-echo -e "${WHITE}    ░▒▓███████████████████████▓▒░${NC}"
+echo -e "${WHITE}    ░▒▓██████████████████████▓▒░${NC}"
 echo -e "${WHITE}${NC}"
 
 # 1. Vérification / Élévation des privilèges root (sudo)

@@ -86,19 +86,59 @@ def test_only_flag_restricts_plan_in_dry_run_output(tmp_path: Path, capsys: pyte
     assert "sample-access" in out
 
 
-def test_serv_root_is_mandatory(tmp_path: Path) -> None:
-    """Aucune convention universelle ne permet de deviner ou se trouve
-    une installation omega-serv sur un serveur reel - contrairement
-    aux repertoires fail2ban, --serv-root reste obligatoire."""
+def test_serv_root_missing_without_saved_file_shows_clear_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    omega_jail_root = tmp_path / "omega-jail-install"
+    omega_jail_root.mkdir()
     args = [
+        "--omega-jail-root", str(omega_jail_root),
         "--catalog", str(_write_catalog(tmp_path)),
         "--jail-d-dir", str(tmp_path / "fail2ban" / "jail.d"),
         "--filter-d-dir", str(tmp_path / "fail2ban" / "filter.d"),
         "--action-d-dir", str(tmp_path / "fail2ban" / "action.d"),
     ]
-    with pytest.raises(SystemExit) as exc_info:
-        main(args)
-    assert exc_info.value.code == 2
+    exit_code = main(args)
+    assert exit_code == 1
+    assert "aucun chemin omega-serv enregistre" in capsys.readouterr().err
+
+
+def test_serv_root_read_from_file_saved_by_install_sh(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    omega_jail_root = tmp_path / "omega-jail-install"
+    omega_jail_root.mkdir()
+    saved_serv_root = tmp_path / "serv"
+    saved_serv_root.mkdir()
+    (omega_jail_root / ".serv-root").write_text(str(saved_serv_root) + "\n", encoding="utf-8")
+
+    args = [
+        "--omega-jail-root", str(omega_jail_root),
+        "--catalog", str(_write_catalog(tmp_path)),
+        "--jail-d-dir", str(tmp_path / "fail2ban" / "jail.d"),
+        "--filter-d-dir", str(tmp_path / "fail2ban" / "filter.d"),
+        "--action-d-dir", str(tmp_path / "fail2ban" / "action.d"),
+    ]
+    exit_code = main(args)
+    assert exit_code == 0
+    assert "Dry-run" in capsys.readouterr().out
+
+
+def test_explicit_serv_root_overrides_saved_file(tmp_path: Path) -> None:
+    omega_jail_root = tmp_path / "omega-jail-install"
+    omega_jail_root.mkdir()
+    (omega_jail_root / ".serv-root").write_text(str(tmp_path / "wrong-serv") + "\n", encoding="utf-8")
+    real_serv_root = tmp_path / "serv"
+    real_serv_root.mkdir()
+
+    args = [
+        "--omega-jail-root", str(omega_jail_root),
+        "--serv-root", str(real_serv_root),
+        "--catalog", str(_write_catalog(tmp_path)),
+        "--jail-d-dir", str(tmp_path / "fail2ban" / "jail.d"),
+        "--filter-d-dir", str(tmp_path / "fail2ban" / "filter.d"),
+        "--action-d-dir", str(tmp_path / "fail2ban" / "action.d"),
+    ]
+    exit_code = main(args)
+    assert exit_code == 0
 
 
 def test_fail2ban_dirs_autodetected_when_omitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

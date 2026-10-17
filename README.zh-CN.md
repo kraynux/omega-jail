@@ -71,39 +71,45 @@ chmod +x install.sh
 ```
 
 `install.sh` 会创建虚拟环境、安装 omega-jail(`pip install -e .`,此
-步骤不需要 root 权限),并将 `omega-jail.sh`/`install.sh` 设为可执行。
+步骤不需要 root 权限),将 `omega-jail.sh`/`install.sh` 设为可执行——
+然后在 `$HOME` 下查找 omega-serv 安装(通过是否存在 `omega-serv.sh`
+识别):如果只找到一个候选项,会自动保存;如果找到零个或多个,则会
+询问一次。该路径保存在 `.serv-root` 中(永不提交到版本控制)——之后
+再也不需要手动输入。
 
 ## 使用方法
 
 默认为 dry-run(演练模式)——在明确要求 `--apply` 之前绝不写入任何内容。
-`--serv-root` 仍然是必填项(没有任何通用约定可以猜出真实服务器上
-omega-serv 安装的位置);但 jail 必须始终写入机器上真正的 fail2ban
-目录——`/etc/fail2ban/` 会被自动检测并校验,无需手动指定:
+无需输入任何路径:omega-serv 就是 `install.sh` 保存的那个,而 jail
+必须始终写入机器上真正的 fail2ban 目录——`/etc/fail2ban/` 也会被自动
+检测并校验:
 
 ```bash
-./omega-jail.sh --serv-root /path/to/omega-serv
+./omega-jail.sh
 ```
 
 实际安装(需要 root 权限——写入 `/etc/fail2ban/`,重新加载
 `fail2ban-client`):
 
 ```bash
-./omega-jail.sh --serv-root /path/to/omega-serv --apply
+./omega-jail.sh --apply
 ```
 
 如果 `/etc/fail2ban/` 不存在(未安装 fail2ban),命令会明确失败并给出
 清晰提示,而不会错误地写入别处。
 
 常用选项:
-- `--jail-d-dir`/`--filter-d-dir`/`--action-d-dir <路径>`:仅当
-  fail2ban 未安装在标准位置时才需要。
-- `--only <jail名称>`:仅安装目录中的单个条目。
-- `--force`:覆盖已存在的 `jail.d/omega-jail-<名称>.conf`(不加此
+- `--serv-root`:接收另一个 omega-serv 的路径,用于临时指定与
+  `install.sh` 保存的不同的安装。
+- `--jail-d-dir`、`--filter-d-dir`、`--action-d-dir`:各自接收一个
+  目录路径,仅当 fail2ban 未安装在标准位置时才需要。
+- `--only`:接收目录中某个 jail 的名称,仅安装该条目。
+- `--force`:覆盖目录中某个 jail 已存在的 `jail.d/` 文件(不加此
   选项时,文件名冲突总会被报告,绝不会被静默覆盖)。
-- `--tailscale-cidr <cidr>`:如果与默认值 `100.64.0.0/10` 不同,指定
-  要视为 Tailscale 的地址段。
-- `--serv-config <路径>`:仅当 omega-serv 的配置不在标准位置(即
-  `--serv-root` 下的 `config/omega-serve.json`)时才需要指定。
+- `--tailscale-cidr`:接收一个 CIDR 格式的网段,用于指定要视为
+  Tailscale 的地址段,如果与默认值 `100.64.0.0/10` 不同。
+- `--serv-config`:接收一个路径,仅当 omega-serv 的配置不在标准位置
+  (即所用 omega-serv 路径下的 `config/omega-serve.json`)时才需要指定。
 
 每次执行都可以安全地重复运行:之前运行已创建的 jail(或任何已经监控
 同一日志文件的外部 jail,无论其名称如何)都会被自动检测并跳过,绝不
