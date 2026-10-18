@@ -61,6 +61,14 @@ class RenderedJail:
     filter_content: str
     jail_filename: str
     jail_content: str
+    logpath: Path
+    """Chemin du log surveille par ce jail - conserve ici (pas seulement
+    injecte dans jail_content) pour qu'install.py puisse creer le
+    fichier a vide s'il n'existe pas encore avant de recharger fail2ban
+    (sinon : `fail2ban-client reload` echoue avec "Have not found any
+    log file for '<jail>' jail" - cas reel pour un jail pointant vers
+    un log que son emetteur ne cree que lors de son premier evenement,
+    ex. blocklist_log d'omega-waf.lua avant toute premiere alerte)."""
 
 
 def render_entry(
@@ -79,6 +87,7 @@ def render_entry(
         filter_content=render_filter(jail, use_json_logs=use_json_logs),
         jail_filename=filename,
         jail_content=render_jail(jail, status.logpath, include_bridge_action=include_bridge_action),
+        logpath=status.logpath,
     )
 
 

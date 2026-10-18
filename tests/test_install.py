@@ -90,6 +90,38 @@ def test_apply_writes_filter_jail_and_action_files(tmp_path: Path) -> None:
     assert "bad" in filter_file.read_text(encoding="utf-8")
 
 
+def test_apply_creates_empty_logpath_file_when_missing(tmp_path: Path) -> None:
+    """fail2ban-client refuse de charger un jail dont le logpath
+    n'existe pas encore sur disque ("Have not found any log file for
+    '<jail>' jail") - cas reel pour un jail pointant vers un log que
+    son emetteur ne cree que lors de son premier evenement."""
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-access")
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+
+    logpath = serv_root / "var" / "log" / "access.log"
+    assert not logpath.exists()
+
+    apply(report, config)
+
+    assert logpath.exists()
+    assert logpath.read_text(encoding="utf-8") == ""
+
+
+def test_apply_never_overwrites_an_existing_logpath_file(tmp_path: Path) -> None:
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-access")
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+
+    logpath = serv_root / "var" / "log" / "access.log"
+    logpath.parent.mkdir(parents=True)
+    logpath.write_text("ligne existante\n", encoding="utf-8")
+
+    apply(report, config)
+
+    assert logpath.read_text(encoding="utf-8") == "ligne existante\n"
+
+
 def test_action_conf_written_even_when_nothing_to_create(tmp_path: Path) -> None:
     serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
     config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-waf")
@@ -149,6 +181,32 @@ def test_duplicate_logpath_against_existing_jail_is_skipped_without_force(tmp_pa
     outcome = next(a for a in report.plan if a.name == "sample-access")
     assert outcome.outcome == "skip_duplicate"
     assert "hand-made" in outcome.detail
+
+
+def test_apply_creates_logpath_even_for_a_skipped_duplicate_jail(tmp_path: Path) -> None:
+    """fail2ban refuse de DEMARRER tout jail (meme preexistant, pas
+    seulement nouvellement cree) dont le logpath configure n'existe
+    pas - cas reel observe en production : un jail casse d'un run
+    precedent reste reference dans jail.d/ et continue d'empecher
+    fail2ban de demarrer tant que son fichier de log manque, meme apres
+    plusieurs redemarrages, puisqu'un nouveau run le voit comme un
+    doublon (deja surveille) et ne le retouchait jamais avant ce
+    correctif."""
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    jail_d.mkdir(parents=True)
+    access_log = serv_root / "var" / "log" / "access.log"
+    assert not access_log.exists()
+    (jail_d / "hand-made.conf").write_text(f"[hand-made]\nlogpath = {access_log}\n", encoding="utf-8")
+
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-access")
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+    outcome = next(a for a in report.plan if a.name == "sample-access")
+    assert outcome.outcome == "skip_duplicate"
+
+    apply(report, config)
+
+    assert access_log.exists()
+    assert access_log.read_text(encoding="utf-8") == ""
 
 
 def test_reload_fn_called_on_apply(tmp_path: Path) -> None:

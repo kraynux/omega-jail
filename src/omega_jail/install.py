@@ -28,6 +28,17 @@ class PlannedAction:
     outcome: PlanOutcome
     detail: str
     rendered: RenderedJail | None = None
+    logpath: Path | None = None
+    """Meme pour un jail "skip_duplicate" (pas seulement cree/ecrase) :
+    fail2ban refuse de demarrer TOUT jail dont le logpath configure
+    n'existe pas sur disque - y compris un jail deja existant avant ce
+    run (cas reel : le jail casse d'un run precedent reste reference
+    dans jail.d/ et continue d'empecher fail2ban de demarrer tant que
+    son fichier de log manque, meme apres plusieurs redemarrages -
+    retour utilisateur 2026-10-18, "fail2ban marche plus... les
+    redemarrages non plus"). apply() doit donc garantir ce fichier pour
+    CHAQUE jail du catalogue reellement applicable, quelle que soit la
+    raison (cree par ce run ou deja present)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +88,7 @@ def build_plan(
                     name=status.jail.name,
                     outcome="skip_duplicate",
                     detail=f"deja surveille par le jail existant {status.duplicate_of!r}",
+                    logpath=status.logpath,
                 )
             )
             continue
@@ -95,7 +107,11 @@ def build_plan(
             continue
 
         outcome: PlanOutcome = "overwrite_forced" if target.exists() else "create"
-        plan.append(PlannedAction(name=status.jail.name, outcome=outcome, detail=str(target), rendered=rendered))
+        plan.append(
+            PlannedAction(
+                name=status.jail.name, outcome=outcome, detail=str(target), rendered=rendered, logpath=rendered.logpath
+            )
+        )
     return plan
 
 
@@ -135,12 +151,15 @@ def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[
     (config.action_d_dir / ACTION_CONF_FILENAME).write_text(report.action_conf_content, encoding="utf-8")
 
     for action in report.plan:
-        if action.outcome not in ("create", "overwrite_forced"):
-            continue
-        rendered = action.rendered
-        assert rendered is not None
-        (config.filter_d_dir / rendered.filter_filename).write_text(rendered.filter_content, encoding="utf-8")
-        (config.jail_d_dir / rendered.jail_filename).write_text(rendered.jail_content, encoding="utf-8")
+        if action.outcome in ("create", "overwrite_forced"):
+            rendered = action.rendered
+            assert rendered is not None
+            (config.filter_d_dir / rendered.filter_filename).write_text(rendered.filter_content, encoding="utf-8")
+            (config.jail_d_dir / rendered.jail_filename).write_text(rendered.jail_content, encoding="utf-8")
+
+        if action.logpath is not None and not action.logpath.exists():
+            action.logpath.parent.mkdir(parents=True, exist_ok=True)
+            action.logpath.touch()
 
     if reload_fn is not None:
         reload_fn()

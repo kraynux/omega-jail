@@ -110,6 +110,7 @@ def test_render_entry_available_produces_matching_filenames(tmp_path: Path) -> N
     assert rendered.filter_filename == rendered.jail_filename == f"{filter_name(jail.name)}.conf"
     assert jail.failregex in rendered.filter_content
     assert str(tmp_path / "access.log") in rendered.jail_content
+    assert rendered.logpath == tmp_path / "access.log"
 
 
 def test_render_available_entries_filters_and_preserves_order(tmp_path: Path) -> None:

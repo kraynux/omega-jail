@@ -79,12 +79,15 @@ chmod +x install.sh
 
 `install.sh` crée l'environnement virtuel, installe omega-jail
 (`pip install -e .`, aucun privilège root nécessaire pour cette étape),
-rend `omega-jail.sh`/`install.sh` exécutables — puis cherche une
-installation omega-serv sous `$HOME` (reconnue par la présence
-d'`omega-serv.sh`) : un seul candidat trouvé, il est enregistré
-automatiquement ; zéro ou plusieurs, il vous le demande une seule
-fois. Ce chemin est mémorisé dans `.serv-root` (jamais commité) :
-vous n'avez ensuite jamais besoin de le retaper.
+rend `omega-jail.sh`/`install.sh` exécutables — puis demande le chemin
+de l'installation omega-serv à protéger : si vous le connaissez déjà,
+le taper directement est le plus rapide (évite toute recherche) ;
+laissé vide, une recherche automatique sous `$HOME` prend le relais
+(reconnue par la présence d'`omega-serv.sh`, quelques secondes) — un
+seul candidat trouvé, il est enregistré automatiquement ; zéro ou
+plusieurs, il vous le redemande. Ce chemin est mémorisé dans
+`.serv-root` (jamais commité) : vous n'avez ensuite jamais besoin de
+le retaper.
 
 ## Utilisation
 

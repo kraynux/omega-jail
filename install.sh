@@ -98,22 +98,77 @@ fi
 #    ambigu, mais aucune question posee pour autant quand le signal
 #    est clair). Zero ou plusieurs candidats -> on demande a l'humain,
 #    une seule fois.
+#    -xdev, exclusion par chemin via findmnt, filtrage APRES coup par
+#    `stat -f`, puis pruning par -fstype verifie EN DIRECT par `find`
+#    (toutes tentees successivement, 2026-10-18) : $HOME peut contenir
+#    un point de montage reseau/cloud sous forme de partage Samba (deja
+#    observe sur cette meme machine : ~/Reseau/hpc-home/,
+#    ~/Reseau/mpc-home/, ~/Reseau/craftdark-home/ sont des montages
+#    CIFS reels) qui expose(nt) le omega-serv D'UNE AUTRE MACHINE,
+#    jamais celui de la machine locale qu'omega-jail est censee
+#    proteger (retour utilisateur : "il va aussi sur les partages samba
+#    donc j'ai plusieurs omega-serv sur les machines"). Les QUATRE
+#    protections precedentes se sont reveles soit insuffisantes sur une
+#    autre machine (le parcours entrait malgre tout dans les partages,
+#    y compris avec -fstype verifie en direct - mecanisme de montage
+#    exact jamais identifie a distance), soit insuffisantes pour la
+#    PERFORMANCE (un filtrage apres coup laisse `find` traverser
+#    integralement le partage avant de rejeter le resultat - lent meme
+#    quand le partage repond : "il met 10mn au moins pour installer
+#    (samba)"). Protection supplementaire et PRIORITAIRE desormais :
+#    exclusion par NOM de dossier (`-iname`), le seul signal qui ne
+#    depend d'AUCUNE detection de montage/systeme de fichiers (ni
+#    device, ni fstype, ni table de montage) - donc immunise par
+#    construction contre tout mecanisme de montage, quel qu'il soit.
+#    Heuristique (les noms couverts sont ceux observes en usage reel
+#    plus les plus courants), pas une garantie absolue contrairement
+#    aux mecanismes precedents - mais evaluee EN PREMIER (avant meme
+#    -fstype) : un dossier nomme "Reseau" est ecarte sans jamais
+#    toucher/interroger ce qu'il contient, donc jamais de cout reseau
+#    du tout pour ce qui est exclu par ce biais. -xdev et -fstype
+#    restent en complement pour tout montage sous un nom non couvert
+#    ici. `timeout 8` reste le garde-fou final contre un blocage
+#    pendant le parcours lui-meme (ex. disque local defaillant) ; un
+#    timeout est traite comme "aucun candidat trouve", jamais comme un
+#    echec bloquant.
+#    Manuel propose EN PREMIER, avant toute recherche (retour
+#    utilisateur 2026-10-18 : "on peut mettre une etape pour la
+#    recherche d'une installation soit auto (+long) ou manuelle (plus
+#    court) car pour un ~/omega-serv cela peut etre plus rapide") :
+#    si l'utilisateur connait deja le chemin (cas frequent : une seule
+#    installation omega-serv, toujours au meme endroit), le taper
+#    directement evite entierement le parcours de $HOME, aussi rapide
+#    et fiable que la recherche soit par ailleurs. L'exemple dans
+#    l'invite utilise le vrai $HOME de la machine (jamais un chemin
+#    generique/placeholder - meme principe que la discipline deja
+#    appliquee aux commandes affichees).
 # -------------------------------------------------------------------------
 echo ""
-info "Recherche d'une installation omega-serv sous \$HOME..."
-mapfile -t SERV_CANDIDATES < <(find "$HOME" -maxdepth 4 -name "omega-serv.sh" -not -path "*/.*" 2>/dev/null | xargs -r -n1 dirname | sort -u)
+read -rp "Chemin de l'installation omega-serv si vous le connaissez deja (ex. $HOME/omega-serv) - laissez vide pour une recherche automatique sous \$HOME (quelques secondes) : " SERV_ROOT_INPUT
 
-SERV_ROOT_INPUT=""
-if [ "${#SERV_CANDIDATES[@]}" -eq 1 ]; then
-    SERV_ROOT_INPUT="${SERV_CANDIDATES[0]}"
-    ok "Installation omega-serv détectée automatiquement : $SERV_ROOT_INPUT"
-elif [ "${#SERV_CANDIDATES[@]}" -gt 1 ]; then
-    warn "Plusieurs installations omega-serv trouvées sous \$HOME, aucune choisie automatiquement (ambigu) :"
-    for c in "${SERV_CANDIDATES[@]}"; do echo "    $c"; done
-    read -rp "Collez le chemin exact à utiliser (laisser vide pour le préciser plus tard) : " SERV_ROOT_INPUT
-else
-    warn "Aucune installation omega-serv trouvée automatiquement sous \$HOME."
-    read -rp "Chemin de l'installation omega-serv à protéger (laisser vide pour le préciser plus tard) : " SERV_ROOT_INPUT
+if [ -z "$SERV_ROOT_INPUT" ]; then
+    info "Recherche d'une installation omega-serv sous \$HOME (max 8s, hors partages montes)..."
+
+    mapfile -t SERV_CANDIDATES < <(timeout 8 find "$HOME" -maxdepth 4 -xdev \
+        \( -iname "Reseau" -o -iname "Network" -o -iname "Partages" -o -iname "Shares" \
+           -o -iname "nas" -o -iname "smb" -o -iname "cifs" -o -iname "gvfs" \) -prune \
+        -o \( -fstype smb2 -o -fstype smbfs -o -fstype smb3 -o -fstype cifs \
+              -o -fstype nfs -o -fstype nfs4 -o -fstype fuse.gvfsd-fuse \
+              -o -fstype fuse.sshfs -o -fstype afs \) -prune \
+        -o -name "omega-serv.sh" -not -path "*/.*" -print 2>/dev/null \
+        | xargs -r -n1 dirname | sort -u)
+
+    if [ "${#SERV_CANDIDATES[@]}" -eq 1 ]; then
+        SERV_ROOT_INPUT="${SERV_CANDIDATES[0]}"
+        ok "Installation omega-serv détectée automatiquement : $SERV_ROOT_INPUT"
+    elif [ "${#SERV_CANDIDATES[@]}" -gt 1 ]; then
+        warn "Plusieurs installations omega-serv trouvées sous \$HOME, aucune choisie automatiquement (ambigu) :"
+        for c in "${SERV_CANDIDATES[@]}"; do echo "    $c"; done
+        read -rp "Collez le chemin exact à utiliser (laisser vide pour le préciser plus tard) : " SERV_ROOT_INPUT
+    else
+        warn "Aucune installation omega-serv trouvée automatiquement sous \$HOME."
+        read -rp "Chemin de l'installation omega-serv à protéger (laisser vide pour le préciser plus tard) : " SERV_ROOT_INPUT
+    fi
 fi
 
 if [ -n "$SERV_ROOT_INPUT" ]; then
