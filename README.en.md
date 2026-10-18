@@ -52,6 +52,8 @@ even over Tailscale. This bridge is always *fail-open*: an error here
 (omega-serv missing, config not found) never makes the default network
 ban fail for everyone else.
 
+**Networks never banned.** Only external traffic can be banned: localhost, Tailscale (`100.64.0.0/10`) and the local network never are. Each generated jail gets an `ignoreip` line with the list **provided by omega-serv itself** (`omega-serv waf never-auto-block`, setting `options.waf.reputation.never_auto_block`) — never a hard-coded copy here. An `ignoreip` already defined in `[DEFAULT]` is kept and extended, never overwritten. The Tailscale bridge never relays the ban of an exempt address: with the default settings it therefore relays nothing anymore (your external visitors arrive with their real public address). If omega-serv is missing or too old, only localhost is exempt, with a warning in the report. An existing installation is only updated with `--apply --force`.
+
 ## Catalog
 
 | Jail | Source | Trigger |

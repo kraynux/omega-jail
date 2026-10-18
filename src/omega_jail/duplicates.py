@@ -42,8 +42,21 @@ def check_catalog_against_existing(
     catalog: Catalog,
     detected: DetectedPaths,
     existing_logpaths: dict[str, str],
+    owned_jail_names: frozenset[str] = frozenset(),
 ) -> list[CatalogEntryStatus]:
-    normalized_existing = {name: _normalize(path) for name, path in existing_logpaths.items()}
+    """`owned_jail_names` : jails deja installes PAR omega-jail lui-meme (nom du
+    catalogue ET fichier `jail.d/omega-jail-<nom>.conf` present). Retour reel
+    2026-10-18 (craftdark) : sans cette distinction, une reinstallation voyait
+    chaque jail comme un doublon de LUI-MEME ("deja surveille par le jail
+    existant 'omega-serv-waf-block'") et `--force` ne pouvait jamais le
+    regenerer - les jails gardaient leur ancienne version, sans ignoreip.
+    Ils sont exclus de la comparaison : le plan les traite alors comme une
+    collision de fichier (ignores sans --force, regeneres avec --force). Un
+    VRAI doublon externe (autre jail de l'utilisateur sur le meme log) reste
+    protege comme avant."""
+    normalized_existing = {
+        name: _normalize(path) for name, path in existing_logpaths.items() if name not in owned_jail_names
+    }
 
     results: list[CatalogEntryStatus] = []
     for jail in catalog.jails:

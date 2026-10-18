@@ -54,6 +54,8 @@ puente siempre es *fail-open*: un error aquí (omega-serv ausente,
 configuración no encontrada) nunca hace fallar el ban de red por
 defecto para los demás.
 
+**Redes nunca baneadas.** Solo el tráfico externo puede ser baneado: el host local, Tailscale (`100.64.0.0/10`) y la red local nunca lo son. Cada jail generado recibe una línea `ignoreip` con la lista **proporcionada por el propio omega-serv** (`omega-serv waf never-auto-block`, ajuste `options.waf.reputation.never_auto_block`) — nunca una copia fija aquí. Un `ignoreip` ya definido en `[DEFAULT]` se conserva y se completa, nunca se sobrescribe. El puente Tailscale nunca retransmite el baneo de una dirección exenta: con los ajustes por defecto ya no retransmite nada (sus visitantes externos llegan con su dirección pública real). Si omega-serv no se encuentra o es demasiado antiguo, solo el host local queda exento, con una advertencia en el informe. Una instalación existente solo se actualiza con `--apply --force`.
+
 ## Catálogo
 
 | Jail | Fuente | Disparador |

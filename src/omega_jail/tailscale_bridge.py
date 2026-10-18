@@ -22,10 +22,15 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import os
+import pwd
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from string import Template
+
+from omega_jail.exemptions import is_exempt
 
 DEFAULT_TAILSCALE_CIDR = "100.64.0.0/10"
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent.parent / "action.d" / "omega-jail-tailscale-bridge.conf"
@@ -41,6 +46,7 @@ def render_action_conf(
     servcli: str,
     servconfig: str = "",
     tailscale_cidr: str = DEFAULT_TAILSCALE_CIDR,
+    exempt: str = "",
 ) -> str:
     template = Template(TEMPLATE_PATH.read_text(encoding="utf-8"))
     return template.substitute(
@@ -48,6 +54,7 @@ def render_action_conf(
         servcli=servcli,
         servconfig=servconfig,
         tailscale_cidr=tailscale_cidr,
+        exempt=exempt,
     )
 
 
@@ -62,6 +69,38 @@ def is_tailscale_address(ip: str, cidr: str = DEFAULT_TAILSCALE_CIDR) -> bool:
 
 def _warn(message: str) -> None:
     print(f"omega-jail-tailscale-bridge: {message}", file=sys.stderr)
+
+
+@dataclass(frozen=True, slots=True)
+class RunAs:
+    """Compte sous lequel lancer omega-serv (kwargs de subprocess.run)."""
+    user: int
+    group: int
+    extra_groups: tuple[int, ...]
+    home: str
+
+
+def run_as_installation_owner(servcli: str) -> RunAs | None:
+    """Incident reel du 2026-10-18 (craftdark) : fail2ban execute ce pont en
+    ROOT ; `omega-serv blocklist add` reecrivait alors secure/waf/blocklist.json
+    en root:root 600 - le service ne pouvait plus le lire et levait
+    PermissionError sur CHAQUE requete (site entier en 502). On lance donc
+    omega-serv sous le PROPRIETAIRE de son installation (racine
+    `<serv_root>` = 3 niveaux au-dessus de `<serv_root>/.venv/bin/omega-serv`),
+    jamais en root. None = rien a changer (pas root, ou installation possedee
+    par root, ou proprietaire introuvable)."""
+    if os.geteuid() != 0 or not servcli:
+        return None
+    try:
+        serv_root = Path(servcli).resolve().parents[2]
+        owner_uid = serv_root.stat().st_uid
+        entry = pwd.getpwuid(owner_uid)
+    except (OSError, IndexError, KeyError):
+        return None
+    if owner_uid == 0:
+        return None
+    groups = tuple(g for g in os.getgrouplist(entry.pw_name, entry.pw_gid) if g != entry.pw_gid)
+    return RunAs(user=owner_uid, group=entry.pw_gid, extra_groups=groups, home=entry.pw_dir)
 
 
 def run_blocklist_command(
@@ -86,8 +125,15 @@ def run_blocklist_command(
         if bantime_seconds is not None:
             args += ["--duration-seconds", str(bantime_seconds)]
 
+    run_as = run_as_installation_owner(servcli)
+    extra: dict[str, object] = {}
+    if run_as is not None:
+        extra = {
+            "user": run_as.user, "group": run_as.group, "extra_groups": list(run_as.extra_groups),
+            "env": {**os.environ, "HOME": run_as.home},
+        }
     try:
-        subprocess.run(args, check=False, capture_output=True, timeout=10)
+        subprocess.run(args, check=False, capture_output=True, timeout=10, **extra)  # type: ignore[call-overload]
     except OSError as exc:
         _warn(f"echec appel {servcli} (fail-open, ban nftables inchange) : {exc}")
     except subprocess.TimeoutExpired:
@@ -103,8 +149,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cidr", default=DEFAULT_TAILSCALE_CIDR)
     parser.add_argument("--jail", default="omega-jail")
     parser.add_argument("--bantime", type=int, default=None)
+    parser.add_argument(
+        "--exempt", default="",
+        help="reseaux jamais bannis (virgules), fournis par omega-serv a l'installation",
+    )
     args = parser.parse_args(argv)
 
+    exempt_networks = tuple(n for n in args.exempt.split(",") if n.strip())
+    if is_exempt(args.ip, exempt_networks):
+        # OMEGA-SERV_PLAN-DETAILLE_SENSITIVE_PATHS.md lot 10 : jamais un ban
+        # relaye pour une adresse exemptee (hote local, Tailscale, reseau local).
+        _warn(f"{args.ip} est exemptee de ban automatique : rien n'est relaye")
+        return 0
     if is_tailscale_address(args.ip, args.cidr):
         run_blocklist_command(
             args.servcli,

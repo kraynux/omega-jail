@@ -160,3 +160,54 @@ def test_main_always_returns_zero_even_on_subprocess_failure(monkeypatch: pytest
 
 def test_default_tailscale_cidr_constant() -> None:
     assert DEFAULT_TAILSCALE_CIDR == "100.64.0.0/10"
+
+
+# ---- incident du 2026-10-18 : jamais omega-serv lance en root ---------------
+def _servcli_tree(tmp_path: Path) -> Path:
+    servcli = tmp_path / "omega-serv" / ".venv" / "bin" / "omega-serv"
+    servcli.parent.mkdir(parents=True)
+    servcli.write_text("#!/bin/sh\n")
+    return servcli
+
+
+def test_as_root_omega_serv_runs_as_installation_owner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from omega_jail import tailscale_bridge
+
+    servcli = _servcli_tree(tmp_path)
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(tailscale_bridge.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(tailscale_bridge.subprocess, "run", lambda args, **kw: captured.update(args=args, **kw))
+    run_blocklist_command(str(servcli), "add", "203.0.113.5")
+    assert captured["user"] == os.getuid(), "proprietaire de <serv_root>, jamais root"
+    assert captured["group"] == os.getgid()
+    assert captured["env"]["HOME"]
+    assert captured["args"][:3] == [str(servcli), "blocklist", "add"]
+
+
+def test_not_root_runs_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from omega_jail import tailscale_bridge
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(tailscale_bridge.subprocess, "run", lambda args, **kw: captured.update(kw))
+    run_blocklist_command(str(_servcli_tree(tmp_path)), "add", "203.0.113.5")
+    assert "user" not in captured
+
+
+def test_root_owned_installation_is_not_switched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from omega_jail import tailscale_bridge
+
+    monkeypatch.setattr(tailscale_bridge.os, "geteuid", lambda: 0)
+    real_stat = Path.stat
+
+    def fake_stat(self: Path, *a: Any, **k: Any) -> Any:
+        result = real_stat(self, *a, **k)
+        if self.name == "omega-serv" and self.is_dir():
+            class _S:
+                st_uid = 0
+            return _S()
+        return result
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    assert tailscale_bridge.run_as_installation_owner(str(_servcli_tree(tmp_path))) is None

@@ -38,7 +38,24 @@ def render_filter(jail: JailSpec, *, use_json_logs: bool = False) -> str:
     return f"# Genere par Omega-Jail pour {jail.name}\n[Definition]\nfailregex = {failregex}\nignoreregex =\n"
 
 
-def render_jail(jail: JailSpec, logpath: Path, *, include_bridge_action: bool = True) -> str:
+def render_ignoreip(networks: tuple[str, ...], keep_default_ignoreip: bool) -> str:
+    """Ligne `ignoreip` du jail (OMEGA-SERV_PLAN-DETAILLE_SENSITIVE_PATHS.md
+    lot 10). `keep_default_ignoreip` : un [DEFAULT] definit deja ignoreip -
+    on le reprend (`%(known/ignoreip)s`) au lieu de l'ecraser. Sans [DEFAULT]
+    ignoreip, cette interpolation ferait echouer TOUTE la configuration
+    fail2ban (verifie sur 1.1.1) : jamais emise dans ce cas."""
+    values = (["%(known/ignoreip)s"] if keep_default_ignoreip else []) + list(networks)
+    return f"ignoreip = {' '.join(values)}\n" if values else ""
+
+
+def render_jail(
+    jail: JailSpec,
+    logpath: Path,
+    *,
+    include_bridge_action: bool = True,
+    ignoreip: tuple[str, ...] = (),
+    keep_default_ignoreip: bool = False,
+) -> str:
     content = (
         "# Genere par Omega-Jail\n"
         f"[{jail.name}]\n"
@@ -48,7 +65,7 @@ def render_jail(jail: JailSpec, logpath: Path, *, include_bridge_action: bool = 
         f"maxretry = {jail.maxretry}\n"
         f"findtime = {jail.findtime}\n"
         f"bantime = {jail.bantime}\n"
-    )
+    ) + render_ignoreip(ignoreip, keep_default_ignoreip)
     if include_bridge_action:
         content += f"action = %(action_)s\n          {BRIDGE_ACTION_NAME}\n"
     return content
@@ -76,6 +93,8 @@ def render_entry(
     *,
     use_json_logs: bool = False,
     include_bridge_action: bool = True,
+    ignoreip: tuple[str, ...] = (),
+    keep_default_ignoreip: bool = False,
 ) -> RenderedJail | None:
     if status.status != "available" or status.logpath is None:
         return None
@@ -86,7 +105,10 @@ def render_entry(
         filter_filename=filename,
         filter_content=render_filter(jail, use_json_logs=use_json_logs),
         jail_filename=filename,
-        jail_content=render_jail(jail, status.logpath, include_bridge_action=include_bridge_action),
+        jail_content=render_jail(
+            jail, status.logpath, include_bridge_action=include_bridge_action,
+            ignoreip=ignoreip, keep_default_ignoreip=keep_default_ignoreip,
+        ),
         logpath=status.logpath,
     )
 
@@ -96,9 +118,14 @@ def render_available_entries(
     *,
     use_json_logs: bool = False,
     include_bridge_action: bool = True,
+    ignoreip: tuple[str, ...] = (),
+    keep_default_ignoreip: bool = False,
 ) -> list[RenderedJail]:
     rendered = (
-        render_entry(status, use_json_logs=use_json_logs, include_bridge_action=include_bridge_action)
+        render_entry(
+            status, use_json_logs=use_json_logs, include_bridge_action=include_bridge_action,
+            ignoreip=ignoreip, keep_default_ignoreip=keep_default_ignoreip,
+        )
         for status in statuses
     )
     return [r for r in rendered if r is not None]

@@ -66,6 +66,13 @@ def _print_report(report: InstallReport) -> None:
     created = sum(1 for a in report.plan if a.outcome in ("create", "overwrite_forced"))
     skipped = len(report.plan) - created
     print(f"\n{created} jail(s) a creer, {skipped} ignore(s).")
+    if report.exemptions is not None:
+        source = "fournis par omega-serv" if report.exemptions.from_omega_serv else "REPLI"
+        print(f"Reseaux jamais bannis ({source}) : {' '.join(report.exemptions.networks)}")
+        if report.keep_default_ignoreip:
+            print("ignoreip deja defini dans [DEFAULT] : conserve et complete (jamais ecrase).")
+        if report.exemptions.warning:
+            print(f"avertissement : {report.exemptions.warning}", file=sys.stderr)
 
 
 def _default_reload() -> None:

@@ -46,6 +46,8 @@ Tailscale,"已封禁/未封禁"的区别依然可见。这个桥接机制始终�
 *fail-open*(失败即放行)策略:此处出现的任何错误(omega-serv 缺失、
 找不到配置)都绝不会导致其他人的默认网络层封禁失效。
 
+**永不封禁的网络。** 只有外部流量可能被封禁:本机、Tailscale(`100.64.0.0/10`)和本地网络永远不会被封禁。每个生成的 jail 都会获得一行 `ignoreip`,其列表**由 omega-serv 自身提供**(`omega-serv waf never-auto-block`,对应设置 `options.waf.reputation.never_auto_block`)——这里从不硬编码副本。`[DEFAULT]` 中已定义的 `ignoreip` 会被保留并补充,绝不会被覆盖。Tailscale 桥接从不转发被豁免地址的封禁:在默认设置下它因此不再转发任何内容(外部访客以其真实公网地址到达)。若找不到 omega-serv 或其版本过旧,则只豁免本机,并在报告中给出警告。已有的安装只有使用 `--apply --force` 才会更新。
+
 ## 目录清单
 
 | Jail | 来源 | 触发条件 |

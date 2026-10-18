@@ -52,6 +52,8 @@ même via Tailscale. Ce pont est toujours *fail-open* : une erreur ici
 (omega-serv absent, config introuvable) ne fait jamais échouer le ban
 réseau par défaut pour tout le monde.
 
+**Réseaux jamais bannis.** Seul le trafic externe peut être banni : l'hôte local, Tailscale (`100.64.0.0/10`) et le réseau local ne le sont jamais. Chaque jail généré reçoit une ligne `ignoreip` avec la liste **fournie par omega-serv lui-même** (`omega-serv waf never-auto-block`, réglage `options.waf.reputation.never_auto_block`) — jamais une copie en dur ici. Un `ignoreip` déjà défini dans `[DEFAULT]` est conservé et complété, jamais écrasé. Le pont Tailscale ne relaie jamais le ban d'une adresse exemptée : avec les réglages par défaut, il ne relaie donc plus rien (vos visiteurs externes arrivent avec leur vraie adresse publique). omega-serv introuvable ou trop ancien : seul l'hôte local est exempté, avec un avertissement dans le rapport. Une installation existante n'est mise à jour qu'avec `--apply --force`.
+
 ## Catalogue
 
 | Jail | Source | Déclencheur |

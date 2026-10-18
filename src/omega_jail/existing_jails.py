@@ -172,3 +172,28 @@ def existing_logpaths(
         for jail in scan_existing_jails(jail_d_dir, jail_conf_path, jail_local_path)
         if jail.logpath is not None
     }
+
+
+def default_ignoreip_defined(
+    jail_d_dir: str = "/etc/fail2ban/jail.d",
+    jail_conf_path: str | None = None,
+    jail_local_path: str | None = None,
+) -> bool:
+    """Un `ignoreip` ACTIF (ligne non commentee) existe-t-il dans une section
+    [DEFAULT], dans l'un des fichiers que fail2ban lit ? Decide la forme de
+    la ligne `ignoreip` generee (render.py) : `%(known/ignoreip)s ...` reprend
+    les adresses de l'utilisateur, mais fait ECHOUER le chargement de TOUTE la
+    configuration fail2ban si aucun [DEFAULT] ne definit ignoreip - verifie le
+    2026-10-18 sur fail2ban 1.1.1 ("Bad value substitution ... not a valid
+    option name"), cas reel de cette machine."""
+    for path in _candidate_files(jail_d_dir, jail_conf_path, jail_local_path):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                block = extract_section_block(f.read(), "DEFAULT")
+        except OSError:
+            continue
+        if block is not None and re.search(r"^[ \t]*ignoreip[ \t]*=", block, re.MULTILINE):
+            return True
+    return False

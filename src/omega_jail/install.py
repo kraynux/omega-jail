@@ -13,8 +13,9 @@ from typing import Literal
 from omega_jail.catalog import Catalog, load_catalog
 from omega_jail.detect import DEFAULT_CONFIG_REL_PATH, detect
 from omega_jail.duplicates import CatalogEntryStatus, check_catalog_against_existing
-from omega_jail.existing_jails import existing_logpaths
-from omega_jail.render import RenderedJail, render_entry
+from omega_jail.exemptions import ExemptNetworks, read_exempt_networks
+from omega_jail.existing_jails import default_ignoreip_defined, existing_logpaths
+from omega_jail.render import RenderedJail, filter_name, render_entry
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR, find_servcli, render_action_conf
 
 ACTION_CONF_FILENAME = "omega-jail-tailscale-bridge.conf"
@@ -62,6 +63,8 @@ class InstallReport:
     plan: list[PlannedAction]
     action_conf_content: str
     applied: bool = False
+    exemptions: ExemptNetworks | None = None
+    keep_default_ignoreip: bool = False
 
 
 def _select_catalog(catalog: Catalog, only: str | None) -> Catalog:
@@ -76,6 +79,8 @@ def build_plan(
     use_json_logs: bool,
     jail_d_dir: Path,
     force: bool,
+    ignoreip: tuple[str, ...] = (),
+    keep_default_ignoreip: bool = False,
 ) -> list[PlannedAction]:
     plan: list[PlannedAction] = []
     for status in statuses:
@@ -93,7 +98,9 @@ def build_plan(
             )
             continue
 
-        rendered = render_entry(status, use_json_logs=use_json_logs)
+        rendered = render_entry(
+            status, use_json_logs=use_json_logs, ignoreip=ignoreip, keep_default_ignoreip=keep_default_ignoreip,
+        )
         assert rendered is not None  # status == "available" => render_entry ne retourne jamais None
         target = jail_d_dir / rendered.jail_filename
         if target.exists() and not force:
@@ -128,19 +135,35 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
         jail_conf_path=str(config.jail_conf_path) if config.jail_conf_path else None,
         jail_local_path=str(config.jail_local_path) if config.jail_local_path else None,
     )
-    statuses = check_catalog_against_existing(catalog, detected, existing)
+    owned = frozenset(
+        jail.name for jail in catalog.jails if (config.jail_d_dir / f"{filter_name(jail.name)}.conf").exists()
+    )
+    statuses = check_catalog_against_existing(catalog, detected, existing, owned_jail_names=owned)
     use_json_logs = detected.magnet.use_json_logs if detected.magnet else False
-    plan = build_plan(statuses, use_json_logs=use_json_logs, jail_d_dir=config.jail_d_dir, force=config.force)
 
     servcli = find_servcli(config.serv_root)
+    servconfig = Path(config.serv_config_override) if config.serv_config_override else config.serv_root / config.config_rel_path
+    exemptions = read_exempt_networks(servcli, servconfig)
+    keep_default = default_ignoreip_defined(
+        jail_d_dir=str(config.jail_d_dir),
+        jail_conf_path=str(config.jail_conf_path) if config.jail_conf_path else None,
+        jail_local_path=str(config.jail_local_path) if config.jail_local_path else None,
+    )
+    plan = build_plan(
+        statuses, use_json_logs=use_json_logs, jail_d_dir=config.jail_d_dir, force=config.force,
+        ignoreip=exemptions.networks, keep_default_ignoreip=keep_default,
+    )
     bridge_cli = str(config.omega_jail_root / ".venv" / "bin" / "omega-jail-tailscale-bridge")
     action_conf_content = render_action_conf(
         bridge_cli=bridge_cli,
         servcli=str(servcli) if servcli else "",
         servconfig=config.serv_config_override or "",
         tailscale_cidr=config.tailscale_cidr,
+        exempt=",".join(exemptions.networks),
     )
-    return InstallReport(plan=plan, action_conf_content=action_conf_content)
+    return InstallReport(
+        plan=plan, action_conf_content=action_conf_content, exemptions=exemptions, keep_default_ignoreip=keep_default,
+    )
 
 
 def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[], None] | None = None) -> InstallReport:
