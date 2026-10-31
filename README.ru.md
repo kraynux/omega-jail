@@ -7,8 +7,7 @@
 
 **Набор jail'ов Fail2ban, совместимый с Omega-serv, Omega-Fire и Omega-Waf**
 
-> Разработано **kraynux** для **Omega-server** 
-[kraynux.snake-mackarel](https://kraynux.snake-mackarel.ts.net)
+> Разработано [kraynux](https://github.com/kraynux) для [Omega-Server](https://kraynux.snake-mackarel.ts.net)   
 
 Официальная страница: [OMEGA-JAIL](https://kraynux.snake-mackarel.ts.net/omega-jail/)  
   

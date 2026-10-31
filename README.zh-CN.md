@@ -7,8 +7,7 @@
 
 **兼容 Omega-serv、Omega-Fire 和 Omega-Waf 的 Fail2ban jail 预配置包**
 
-> 由 **kraynux** 为 **Omega-server** 开发 
-[kraynux.snake-mackarel](https://kraynux.snake-mackarel.ts.net)
+> 由 [kraynux](https://github.com/kraynux) 为 [Omega-Server](https://kraynux.snake-mackarel.ts.net) 开发   
 
 官方页面：[OMEGA-JAIL](https://kraynux.snake-mackarel.ts.net/omega-jail/)  
   
