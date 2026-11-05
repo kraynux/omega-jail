@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -173,3 +174,42 @@ def test_explicit_dir_override_bypasses_autodetection_check(
     monkeypatch.setattr(cli_module, "find_fail2ban_base_dir", lambda: None)
     exit_code = main(_common_args(tmp_path))
     assert exit_code == 0
+
+
+def test_pending_lists_only_the_jails_to_create(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """install.sh (mise a jour) lit cette sortie : un nom par ligne, rien d'autre, aucune ecriture."""
+    exit_code = main([*_common_args(tmp_path), "--pending"])
+    assert exit_code == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "sample-access", "omega-jail-tailscale-bridge (action du pont a mettre a jour)",
+    ]
+    assert not (tmp_path / "fail2ban" / "jail.d").exists()
+
+
+def test_pending_is_empty_when_everything_is_installed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    jail_d = tmp_path / "fail2ban" / "jail.d"
+    jail_d.mkdir(parents=True)
+    (jail_d / "omega-jail-sample-access.conf").write_text("[sample-access]\n", encoding="utf-8")
+    # action du pont deja a jour : rien a signaler non plus
+    from omega_jail.install import ACTION_CONF_FILENAME, InstallConfig, prepare
+    args = _common_args(tmp_path)
+    config = InstallConfig(
+        serv_root=Path(args[1]), omega_jail_root=cli_module._default_omega_jail_root(),
+        jail_d_dir=jail_d, filter_d_dir=tmp_path / "fail2ban" / "filter.d",
+        action_d_dir=tmp_path / "fail2ban" / "action.d",
+        jail_conf_path=tmp_path / "fail2ban" / "jail.conf", jail_local_path=tmp_path / "fail2ban" / "jail.local",
+    )
+    report = prepare(config, catalog_path=Path(args[3]))
+    (tmp_path / "fail2ban" / "action.d").mkdir(parents=True)
+    (tmp_path / "fail2ban" / "action.d" / ACTION_CONF_FILENAME).write_text(report.action_conf_content, encoding="utf-8")
+    # jail installe mais different du catalogue (ancienne version) : a mettre a jour
+    exit_code = main([*_common_args(tmp_path), "--pending"])
+    assert exit_code == 0
+    assert capsys.readouterr().out == "sample-access (mise a jour)\n"
+    # installe dans sa version actuelle : plus rien a signaler
+    from omega_jail.install import apply as apply_report
+    forced = replace(config, force=True)
+    apply_report(prepare(forced, catalog_path=Path(args[3])), forced)
+    exit_code = main([*_common_args(tmp_path), "--pending"])
+    assert exit_code == 0
+    assert capsys.readouterr().out == ""

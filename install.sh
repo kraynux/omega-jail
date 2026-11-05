@@ -143,6 +143,19 @@ fi
 #    generique/placeholder - meme principe que la discipline deja
 #    appliquee aux commandes affichees).
 # -------------------------------------------------------------------------
+# Mise a jour (2026-11-02) : un chemin deja enregistre et toujours valide est repris tel quel,
+# sans reposer la question ; pour en changer, supprimer .serv-root puis relancer ./install.sh.
+IS_UPDATE=0
+SAVED_SERV_ROOT=""
+if [ -f "$SCRIPT_DIR/.serv-root" ]; then
+    SAVED_SERV_ROOT="$(head -n1 "$SCRIPT_DIR/.serv-root")"
+fi
+if [ -n "$SAVED_SERV_ROOT" ] && [ -f "$SAVED_SERV_ROOT/omega-serv.sh" ]; then
+    IS_UPDATE=1
+    echo ""
+    ok "Mise à jour : chemin omega-serv conservé ($SAVED_SERV_ROOT)."
+    tip "Pour en changer : supprimez $SCRIPT_DIR/.serv-root puis relancez ./install.sh"
+else
 echo ""
 read -rp "Chemin de l'installation omega-serv si vous le connaissez deja (ex. $HOME/omega-serv) - laissez vide pour une recherche automatique sous \$HOME (quelques secondes) : " SERV_ROOT_INPUT
 
@@ -181,10 +194,53 @@ if [ -n "$SERV_ROOT_INPUT" ]; then
         tip "Vous pourrez le préciser explicitement avec --serv-root au lancement."
     fi
 fi
+fi
+
+# -------------------------------------------------------------------------
+# 6. Mise a jour : nouveaux jails du catalogue (2026-11-02, retour utilisateur :
+#    les jails RIPOSTE de la 1.1.0 n'etaient pas installes apres la mise a jour,
+#    faute d'avoir relance --apply). La liste est calculee sans root (--pending,
+#    lecture seule) ; s'il en reste a creer, ils sont affiches puis installes par
+#    omega-jail.sh --apply --update (sudo demande le mot de passe). Un jail deja
+#    installe n'est touche que s'il differe du catalogue (2026-11-02 : les jails
+#    404/401 corriges restaient sans effet tant qu'ils n'etaient pas regeneres) ;
+#    il est alors liste « (mise a jour) » et l'ancien fichier garde en .bak.
+#    Premiere installation : rien d'automatique (on commence toujours par l'apercu).
+# -------------------------------------------------------------------------
+if [ "$IS_UPDATE" -eq 1 ] && command -v fail2ban-client >/dev/null 2>&1; then
+    echo ""
+    info "Recherche des nouveaux jails du catalogue et des jails à mettre à jour..."
+    if PENDING_JAILS="$(.venv/bin/omega-jail --pending 2>/dev/null)"; then
+        if [ -n "$PENDING_JAILS" ]; then
+            info "Jails à installer ou à mettre à jour (un jail non mis à jour garde son ancien comportement) :"
+            while IFS= read -r jail_name; do echo "    $jail_name"; done <<< "$PENDING_JAILS"
+            # Oui par defaut ; non = un jail retire volontairement ne revient pas a chaque mise a jour.
+            read -rp "Installer / mettre à jour ces jails maintenant (sudo) ? [O/n] " APPLY_ANSWER
+            if [[ "${APPLY_ANSWER:-o}" =~ ^[OoYy]$ ]]; then
+                if "$SCRIPT_DIR/omega-jail.sh" --apply --update; then
+                    ok "Jails installés / mis à jour et fail2ban rechargé (anciens fichiers gardés en .bak)."
+                else
+                    warn "Installation / mise à jour des jails non faite."
+                    tip "Relancez : ${SCRIPT_DIR}/omega-jail.sh --apply --update"
+                fi
+            else
+                warn "Jails non mis à jour : ils gardent leur ancien comportement."
+                tip "Plus tard : ${SCRIPT_DIR}/omega-jail.sh --apply --update"
+            fi
+        else
+            ok "Tous les jails applicables sont installés et à jour."
+        fi
+    else
+        warn "Impossible de calculer les nouveaux jails (lecture de la configuration fail2ban ?)."
+        tip "Aperçu : ${SCRIPT_DIR}/omega-jail.sh   puis installation : ${SCRIPT_DIR}/omega-jail.sh --apply"
+    fi
+fi
 
 echo ""
 ok "Installation terminée."
-if [ -f "$SCRIPT_DIR/.serv-root" ]; then
+if [ "$IS_UPDATE" -eq 1 ]; then
+    tip "Aperçu de l'état des jails : ${SCRIPT_DIR}/omega-jail.sh"
+elif [ -f "$SCRIPT_DIR/.serv-root" ]; then
     tip "Aperçu sans rien écrire : ${SCRIPT_DIR}/omega-jail.sh"
     tip "Installation réelle (nécessite root) : ${SCRIPT_DIR}/omega-jail.sh --apply"
 else

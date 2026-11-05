@@ -11,12 +11,13 @@
 
 官方页面：[OMEGA-JAIL](https://kraynux.snake-mackarel.ts.net/omega-jail/)  
   
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../../LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-informational.svg)](https://www.linux.org/)
 
 **语言:**
-[Français](README.md) · [English](README.en.md) · [Español](README.es.md) · [Русский](README.ru.md) · [中文](README.zh-CN.md)
+<img src="https://flagcdn.com/w20/fr.png" alt="France" style="height:14px;"> [Français](../../../README.md) · <img src="https://flagcdn.com/w20/gb.png" alt="English" style="height:14px;"> [English](../en/README.md) · <img src="https://flagcdn.com/w20/es.png" alt="Español" style="height:14px;"> [Español](../es/README.md) · <img src="https://flagcdn.com/w20/br.png" alt="Português (Brasil)" style="height:14px;"> [Português (Brasil)](../pt-BR/README.md) · <img src="https://flagcdn.com/w20/it.png" alt="Italiano" style="height:14px;"> [Italiano](../it/README.md) · <img src="https://flagcdn.com/w20/de.png" alt="Deutsch" style="height:14px;"> [Deutsch](../de/README.md) · <img src="https://flagcdn.com/w20/nl.png" alt="Nederlands" style="height:14px;"> [Nederlands](../nl/README.md) · <img src="https://flagcdn.com/w20/pl.png" alt="Polski" style="height:14px;"> [Polski](../pl/README.md) · <img src="https://flagcdn.com/w20/ru.png" alt="Русский" style="height:14px;"> [Русский](../ru/README.md) · <img src="https://flagcdn.com/w20/cn.png" alt="中文" style="height:14px;"> [中文](README.md) · <img src="https://flagcdn.com/w20/vn.png" alt="Tiếng Việt" style="height:14px;"> [Tiếng Việt](../vi/README.md) · <img src="https://flagcdn.com/w20/th.png" alt="ไทย" style="height:14px;"> [ไทย](../th/README.md) · <img src="https://flagcdn.com/w20/id.png" alt="Bahasa Indonesia" style="height:14px;"> [Bahasa Indonesia](../id/README.md) · <img src="https://flagcdn.com/w20/jp.png" alt="日本語" style="height:14px;"> [日本語](../ja/README.md) · <img src="https://flagcdn.com/w20/kr.png" alt="한국어" style="height:14px;"> [한국어](../ko/README.md) · <img src="https://flagcdn.com/w20/in.png" alt="हिन्दी" style="height:14px;"> [हिन्दी](../hi/README.md) · <img src="https://flagcdn.com/w20/ae.png" alt="العربية" style="height:14px;"> [العربية](../ar/README.md)
+
 ---
 
 为 `omega-serv` 和 `omega-waf`
@@ -45,9 +46,13 @@ Tailscale,"已封禁/未封禁"的区别依然可见。这个桥接机制始终�
 *fail-open*(失败即放行)策略:此处出现的任何错误(omega-serv 缺失、
 找不到配置)都绝不会导致其他人的默认网络层封禁失效。
 
-**永不封禁的网络。** 只有外部流量可能被封禁:本机、Tailscale(`100.64.0.0/10`)和本地网络永远不会被封禁。每个生成的 jail 都会获得一行 `ignoreip`,其列表**由 omega-serv 自身提供**(`omega-serv waf never-auto-block`,对应设置 `options.waf.reputation.never_auto_block`)——这里从不硬编码副本。`[DEFAULT]` 中已定义的 `ignoreip` 会被保留并补充,绝不会被覆盖。Tailscale 桥接从不转发被豁免地址的封禁:在默认设置下它因此不再转发任何内容(外部访客以其真实公网地址到达)。若找不到 omega-serv 或其版本过旧,则只豁免本机,并在报告中给出警告。已有的安装只有使用 `--apply --force` 才会更新。
+**位于本地代理之后(Tailscale Funnel、同一台机器上的反向代理)。** 此时连接来自本机:网络封禁永远触及不到访客。Omega-Jail 会检测到这一点(omega-serv 的可信代理覆盖 `127.0.0.1` 或 `::1`),桥接随后会把每个公网地址的封禁转发到 omega-serv 的 blocklist,由它返回 `451`——与 magnet 脚本的路径相同。RIPOSTE 的 jail 不会被转发:RIPOSTE 已经施加了本地封禁。
+
+**永不封禁的网络。** 只有外部流量可能被封禁:本机、Tailscale(`100.64.0.0/10`)和本地网络永远不会被封禁。每个生成的 jail 都会获得一行 `ignoreip`,其列表**由 omega-serv 自身提供**(`omega-serv waf never-auto-block`,对应设置 `options.waf.reputation.never_auto_block`)——这里从不硬编码副本。`[DEFAULT]` 中已定义的 `ignoreip` 会被保留并补充,绝不会被覆盖。Tailscale 桥接从不转发被豁免地址的封禁:在默认设置下它因此不再转发任何内容(外部访客以其真实公网地址到达)。位于本地代理之后的情况除外:见上一段。若找不到 omega-serv 或其版本过旧,则只豁免本机,并在报告中给出警告。已有的安装只有使用 `--apply --force` 才会更新。
 
 ## 目录清单
+
+**共 10 个 jail**：6 个基础 jail，只安装一次；4 个 RIPOSTE jail，为**每个** omega-serv 实例分别安装（以其服务名为前缀，例如 `omega-serv-riposte-1h`）。
 
 | Jail | 来源 | 触发条件 |
 |---|---|---|
@@ -57,10 +62,20 @@ Tailscale,"已封禁/未封禁"的区别依然可见。这个桥接机制始终�
 | `omega-serv-active-defense` | Active Defense 增强日志 | 15 分钟内 2 次 `hostile`/`contained` 请求 |
 | `omega-serv-auth-bruteforce` | omega-serv 访问日志 | 5 分钟内 5 次 `401` 响应 |
 | `omega-serv-scan` | omega-serv 访问日志 | 2 分钟内 15 次 `404` 响应 |
+| `<service>-riposte-1h` | RIPOSTE 网络封禁(omega-serv 2.1.0),每个实例一组 | 1 小时至不足 6 小时的档位：封禁 1 小时 |
+| `<service>-riposte-6h` | RIPOSTE 网络封禁(omega-serv 2.1.0),每个实例一组 | 6 小时至不足 24 小时的档位：封禁 6 小时 |
+| `<service>-riposte-24h` | RIPOSTE 网络封禁(omega-serv 2.1.0),每个实例一组 | 24 小时至不足 7 天的档位：封禁 24 小时 |
+| `<service>-riposte-7d` | RIPOSTE 网络封禁(omega-serv 2.1.0),每个实例一组 | 7 天及以上的档位：封禁 7 天 |
 
 每个 jail 仅在 omega-serv 端真正配置了对应来源时才会安装(原生 WAF
-已启用、Active Defense 已启用、`magnet` 扩展已配置)——否则会被标记为
-不适用,绝不会盲目创建。
+已启用、Active Defense 已启用、`magnet` 扩展已配置、RIPOSTE 已启用并开启
+网络封禁)——否则会被标记为不适用,绝不会盲目创建。
+
+**RIPOSTE jails(自 1.1.0 起)。** RIPOSTE 是 omega-serv 2.1.0 的分级响应
+模块,会把每次网络封禁写入其日志;Omega-Jail 安装四个固定时长的 jail
+(1 小时、6 小时、24 小时、7 天),每个 RIPOSTE 级别进入不超过该级别的最长
+jail。机器上的所有 omega-serv 实例都会被自动检测(systemd 服务和实例注册表):
+每个实例获得自己的 jail,以其服务名作为前缀。
 
 ## 安装
 
@@ -78,6 +93,8 @@ chmod +x install.sh
 `omega-serv.sh` 识别,需要几秒钟)——如果只找到一个候选项,会自动
 保存;如果找到零个或多个,则会再次询问。该路径保存在 `.serv-root`
 中(永不提交到版本控制)——之后再也不需要手动输入。
+
+**更新。** 在上级目录中，将压缩包解压到现有文件夹之上（`tar -xzf omega-jail.tar.gz`，不使用上面的“已解压”判断），然后重新运行 `./install.sh`：已保存的 omega-serv 路径会保留。如果目录中有新的可用 jail（例如 1.1.0 的 RIPOSTE jail），会先列出，确认后（`sudo`）再安装；已安装的 jail 永远不会被改动。之后 Omega-Fire 会自动显示它们，无需其他设置。
 
 ## 使用方法
 
@@ -105,7 +122,7 @@ chmod +x install.sh
   `install.sh` 保存的不同的安装。
 - `--jail-d-dir`、`--filter-d-dir`、`--action-d-dir`:各自接收一个
   目录路径,仅当 fail2ban 未安装在标准位置时才需要。
-- `--only`:接收目录中某个 jail 的名称,仅安装该条目。
+- `--only`:接收目录中某个 jail 的名称,仅安装该条目(`--only riposte-7d`:每个实例的 7 天 RIPOSTE jail)。
 - `--force`:覆盖目录中某个 jail 已存在的 `jail.d/` 文件(不加此
   选项时,文件名冲突总会被报告,绝不会被静默覆盖)。
 - `--tailscale-cidr`:接收一个 CIDR 格式的网段,用于指定要视为
@@ -125,4 +142,4 @@ chmod +x install.sh
 
 ## 许可证
 
-基于 MIT 许可证发布。详见 [LICENSE](LICENSE) 文件。
+基于 MIT 许可证发布。详见 [LICENSE](../../../LICENSE) 文件。

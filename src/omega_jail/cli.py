@@ -38,6 +38,8 @@ SERV_ROOT_FILENAME = ".serv-root"
 _OUTCOME_LABELS: dict[str, str] = {
     "create": "CREE",
     "overwrite_forced": "ECRASE (--force)",
+    "update": "MIS A JOUR",
+    "skip_outdated": "A METTRE A JOUR",
     "skip_unavailable": "IGNORE (source non configuree)",
     "skip_duplicate": "IGNORE (doublon)",
     "skip_collision": "IGNORE (fichier deja present)",
@@ -63,9 +65,16 @@ def _print_report(report: InstallReport) -> None:
     for action in report.plan:
         label = _OUTCOME_LABELS.get(action.outcome, action.outcome)
         print(f"[{label}] {action.name} - {action.detail}")
-    created = sum(1 for a in report.plan if a.outcome in ("create", "overwrite_forced"))
-    skipped = len(report.plan) - created
-    print(f"\n{created} jail(s) a creer, {skipped} ignore(s).")
+    created = sum(1 for a in report.plan if a.outcome in ("create", "overwrite_forced", "update"))
+    outdated = sum(1 for a in report.plan if a.outcome == "skip_outdated")
+    skipped = len(report.plan) - created - outdated
+    print(f"\n{created} jail(s) a creer ou mettre a jour, {skipped} ignore(s).")
+    if outdated:
+        print(f"{outdated} jail(s) installe(s) dans une ancienne version : sans effet tant qu'ils ne sont pas "
+              "mis a jour - relancer avec --apply --update (ancien fichier garde en .bak).")
+    if report.relay_all:
+        print("omega-serv derriere un proxy local (Tailscale Funnel...) : tout ban d'une adresse publique est aussi "
+              "relaye dans la blocklist d'omega-serv (page 451) - jails RIPOSTE exceptees.")
     if report.exemptions is not None:
         source = "fournis par omega-serv" if report.exemptions.from_omega_serv else "REPLI"
         print(f"Reseaux jamais bannis ({source}) : {' '.join(report.exemptions.networks)}")
@@ -100,7 +109,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tailscale-cidr", default=DEFAULT_TAILSCALE_CIDR)
     parser.add_argument("--only", default=None, help="N'installer qu'un seul jail du catalogue (par nom)")
     parser.add_argument("--force", action="store_true", help="Ecraser un jail.d existant portant le meme nom de fichier")
+    parser.add_argument(
+        "--update", action="store_true",
+        help="Remplacer les jails d'omega-jail installes dont la version differe du catalogue (ancien fichier en .bak)",
+    )
     parser.add_argument("--apply", action="store_true", help="Ecrit reellement les fichiers (defaut : dry-run)")
+    parser.add_argument(
+        "--pending", action="store_true",
+        help="Liste seulement les jails restant a creer ou a mettre a jour, un nom par ligne (lecture seule, "
+             "sans root) - utilise par install.sh lors d'une mise a jour",
+    )
     return parser
 
 
@@ -159,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         tailscale_cidr=args.tailscale_cidr,
         serv_config_override=args.serv_config,
         force=args.force,
+        update=args.update,
         only=args.only,
     )
 
@@ -167,6 +186,17 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"erreur : {exc}", file=sys.stderr)
         return 1
+
+    if args.pending:
+        # Sortie machine (install.sh) : seulement les noms, jamais de texte a interpreter.
+        for action in report.plan:
+            if action.outcome in ("create", "overwrite_forced"):
+                print(action.name)
+            elif action.outcome == "skip_outdated":
+                print(f"{action.name} (mise a jour)")
+        if report.action_conf_outdated(action_d_dir):
+            print("omega-jail-tailscale-bridge (action du pont a mettre a jour)")
+        return 0
 
     _print_report(report)
 

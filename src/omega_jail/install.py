@@ -5,6 +5,7 @@ rester testable sans toucher a un vrai systeme de fichiers racine ni a
 un vrai fail2ban (tous les repertoires sont des parametres)."""
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -15,12 +16,15 @@ from omega_jail.detect import DEFAULT_CONFIG_REL_PATH, detect
 from omega_jail.duplicates import CatalogEntryStatus, check_catalog_against_existing
 from omega_jail.exemptions import ExemptNetworks, read_exempt_networks
 from omega_jail.existing_jails import default_ignoreip_defined, existing_logpaths
+from omega_jail.instances import ServInstance, detect_instances
 from omega_jail.render import RenderedJail, filter_name, render_entry
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR, find_servcli, render_action_conf
 
 ACTION_CONF_FILENAME = "omega-jail-tailscale-bridge.conf"
 
-PlanOutcome = Literal["create", "overwrite_forced", "skip_unavailable", "skip_duplicate", "skip_collision"]
+PlanOutcome = Literal[
+    "create", "overwrite_forced", "update", "skip_unavailable", "skip_duplicate", "skip_collision", "skip_outdated",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +59,14 @@ class InstallConfig:
     tailscale_cidr: str = DEFAULT_TAILSCALE_CIDR
     serv_config_override: str | None = None
     force: bool = False
+    update: bool = False
+    """Regenere les jails d'omega-jail deja installes dont le filtre ou le jail.d differe du catalogue
+    (2026-11-02 : une mise a jour ne touchait jamais un jail installe - le correctif des jails 404/401
+    restait sans effet)."""
     only: str | None = None
+    instances: tuple[ServInstance, ...] | None = None
+    """Instances omega-serv pour les jails `per_instance` (RIPOSTE) ; None = detection reelle
+    (instances.py : unites systemd + registre d'omega-serv, `serv_root` compris)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +76,16 @@ class InstallReport:
     applied: bool = False
     exemptions: ExemptNetworks | None = None
     keep_default_ignoreip: bool = False
+    relay_all: bool = False
+    """omega-serv derriere un proxy local : le pont relaie tout ban d'adresse publique en 451 (hors RIPOSTE)."""
+
+    def action_conf_outdated(self, action_d_dir: Path) -> bool:
+        """L'action du pont installee differe de celle a installer (ex. relais active par cette version)."""
+        current = action_d_dir / ACTION_CONF_FILENAME
+        try:
+            return current.read_text(encoding="utf-8") != self.action_conf_content
+        except OSError:
+            return True
 
 
 def _select_catalog(catalog: Catalog, only: str | None) -> Catalog:
@@ -81,6 +102,8 @@ def build_plan(
     force: bool,
     ignoreip: tuple[str, ...] = (),
     keep_default_ignoreip: bool = False,
+    filter_d_dir: Path | None = None,
+    update: bool = False,
 ) -> list[PlannedAction]:
     plan: list[PlannedAction] = []
     for status in statuses:
@@ -103,6 +126,17 @@ def build_plan(
         )
         assert rendered is not None  # status == "available" => render_entry ne retourne jamais None
         target = jail_d_dir / rendered.jail_filename
+        if target.exists() and not force and _installed_differs(rendered, jail_d_dir, filter_d_dir):
+            plan.append(
+                PlannedAction(
+                    name=status.jail.name,
+                    outcome="update" if update else "skip_outdated",
+                    detail=str(target) if update else "version installee differente du catalogue (--update pour la remplacer)",
+                    rendered=rendered if update else None,
+                    logpath=rendered.logpath,
+                )
+            )
+            continue
         if target.exists() and not force:
             plan.append(
                 PlannedAction(
@@ -122,12 +156,31 @@ def build_plan(
     return plan
 
 
+def _installed_differs(rendered: RenderedJail, jail_d_dir: Path, filter_d_dir: Path | None) -> bool:
+    """Filtre ou jail.d installes differents de ceux que produirait le catalogue actuel. Illisible = inconnu,
+    jamais signale (pas de fausse alerte sans droits de lecture)."""
+    files = [(jail_d_dir / rendered.jail_filename, rendered.jail_content)]
+    if filter_d_dir is not None:
+        files.append((filter_d_dir / rendered.filter_filename, rendered.filter_content))
+    for path, expected in files:
+        try:
+            if path.read_text(encoding="utf-8") != expected:
+                return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> InstallReport:
     catalog = load_catalog(catalog_path or (config.omega_jail_root / "catalog.yaml"))
     errors = catalog.validate()
     if errors:
         raise ValueError("catalogue invalide : " + "; ".join(errors))
     catalog = _select_catalog(catalog, config.only)
+    per_instance = [jail for jail in catalog.jails if jail.per_instance]
+    catalog = Catalog(jails=[jail for jail in catalog.jails if not jail.per_instance])
 
     detected = detect(config.serv_root, config.config_rel_path)
     existing = existing_logpaths(
@@ -152,7 +205,26 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
     plan = build_plan(
         statuses, use_json_logs=use_json_logs, jail_d_dir=config.jail_d_dir, force=config.force,
         ignoreip=exemptions.networks, keep_default_ignoreip=keep_default,
+        filter_d_dir=config.filter_d_dir, update=config.update,
     )
+    if per_instance:
+        instances = config.instances if config.instances is not None else tuple(detect_instances(config.serv_root))
+        for instance in instances:
+            instance_catalog = Catalog(jails=[
+                replace(jail, name=f"{instance.service_name}-{jail.name}", per_instance=False) for jail in per_instance
+            ])
+            instance_owned = frozenset(
+                jail.name for jail in instance_catalog.jails
+                if (config.jail_d_dir / f"{filter_name(jail.name)}.conf").exists()
+            )
+            instance_statuses = check_catalog_against_existing(
+                instance_catalog, detect(instance.root, config.config_rel_path), existing, owned_jail_names=instance_owned,
+            )
+            plan += build_plan(
+                instance_statuses, use_json_logs=False, jail_d_dir=config.jail_d_dir, force=config.force,
+                ignoreip=exemptions.networks, keep_default_ignoreip=keep_default,
+                filter_d_dir=config.filter_d_dir, update=config.update,
+            )
     bridge_cli = str(config.omega_jail_root / ".venv" / "bin" / "omega-jail-tailscale-bridge")
     action_conf_content = render_action_conf(
         bridge_cli=bridge_cli,
@@ -160,10 +232,37 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
         servconfig=config.serv_config_override or "",
         tailscale_cidr=config.tailscale_cidr,
         exempt=",".join(exemptions.networks),
+        relay_all=detected.behind_local_proxy,
     )
     return InstallReport(
         plan=plan, action_conf_content=action_conf_content, exemptions=exemptions, keep_default_ignoreip=keep_default,
+        relay_all=detected.behind_local_proxy,
     )
+
+
+def _keep_previous(path: Path) -> None:
+    """Copie `<fichier>.bak` avant d'ecraser (reglage modifie a la main recuperable) - fail2ban ne lit que
+    *.conf / *.local, la copie n'est jamais chargee."""
+    try:
+        if path.exists():
+            path.with_name(path.name + ".bak").write_bytes(path.read_bytes())
+    except OSError:
+        pass
+
+
+def _share_with_serv(logpath: Path) -> None:
+    """Un journal cree ici par root (--apply) sortirait root:root 644 : le compte du
+    service omega-serv ne pourrait plus y ecrire (cas de riposte-decisions.jsonl, cree
+    au premier ban reseau seulement - bans perdus sans message). Il prend donc le
+    proprietaire et le groupe de son dossier (var/log, partage avec le service) et
+    664, comme FileLineLogger cote omega-serv. Jamais un arret : un echec laisse le
+    fichier tel quel."""
+    try:
+        parent = logpath.parent.stat()
+        os.chown(logpath, parent.st_uid, parent.st_gid)
+        logpath.chmod(0o664)
+    except OSError:
+        pass
 
 
 def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[], None] | None = None) -> InstallReport:
@@ -174,15 +273,18 @@ def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[
     (config.action_d_dir / ACTION_CONF_FILENAME).write_text(report.action_conf_content, encoding="utf-8")
 
     for action in report.plan:
-        if action.outcome in ("create", "overwrite_forced"):
+        if action.outcome in ("create", "overwrite_forced", "update"):
             rendered = action.rendered
             assert rendered is not None
-            (config.filter_d_dir / rendered.filter_filename).write_text(rendered.filter_content, encoding="utf-8")
-            (config.jail_d_dir / rendered.jail_filename).write_text(rendered.jail_content, encoding="utf-8")
+            for path, content in ((config.filter_d_dir / rendered.filter_filename, rendered.filter_content),
+                                  (config.jail_d_dir / rendered.jail_filename, rendered.jail_content)):
+                _keep_previous(path)
+                path.write_text(content, encoding="utf-8")
 
         if action.logpath is not None and not action.logpath.exists():
             action.logpath.parent.mkdir(parents=True, exist_ok=True)
             action.logpath.touch()
+            _share_with_serv(action.logpath)
 
     if reload_fn is not None:
         reload_fn()

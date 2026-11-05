@@ -152,3 +152,24 @@ def test_corrupt_config_json_falls_back_to_defaults(tmp_path: Path) -> None:
     config_path.write_text("{not valid json", encoding="utf-8")
     detected = detect(tmp_path)
     assert detected.access_log == tmp_path / "var/log/access.log"
+
+
+
+def test_behind_local_proxy_detected(tmp_path) -> None:
+    """Proxy de confiance actif couvrant l'hote local (Tailscale Funnel sur craftdark) : relais en 451."""
+    import json
+
+    from omega_jail.detect import detect
+
+    config = tmp_path / "config"
+    config.mkdir()
+    cases = [
+        ({"enabled": True, "trusted_networks": ["127.0.0.1", "100.64.0.0/10", "::1"]}, True),
+        ({"enabled": True, "trusted_networks": ["::1"]}, True),
+        ({"enabled": True, "trusted_networks": ["10.0.0.0/8"]}, False),
+        ({"enabled": False, "trusted_networks": ["127.0.0.1"]}, False),
+        ({}, False),
+    ]
+    for trusted_proxy, expected in cases:
+        (config / "omega-serve.json").write_text(json.dumps({"options": {"trusted_proxy": trusted_proxy}}))
+        assert detect(tmp_path).behind_local_proxy is expected, trusted_proxy

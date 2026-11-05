@@ -213,8 +213,8 @@ def test_reinstall_regenerates_own_jails_with_force(tmp_path: Path) -> None:
         )
 
     without_force = prepare(_config(False), catalog_path=catalog)
-    assert [a.outcome for a in without_force.plan] == ["skip_collision"]
-    assert "--force" in without_force.plan[0].detail
+    assert [a.outcome for a in without_force.plan] == ["skip_outdated"]  # ancien format : a mettre a jour
+    assert "--update" in without_force.plan[0].detail
 
     with_force = apply(prepare(_config(True), catalog_path=catalog), _config(True))
     assert [a.outcome for a in with_force.plan] == ["overwrite_forced"]

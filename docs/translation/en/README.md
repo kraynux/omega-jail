@@ -11,12 +11,13 @@
 
 Official page: [OMEGA-JAIL](https://kraynux.snake-mackarel.ts.net/omega-jail/)  
   
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../../LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux-informational.svg)](https://www.linux.org/)
 
 **Languages:**
-[Français](README.md) · [English](README.en.md) · [Español](README.es.md) · [Русский](README.ru.md) · [中文](README.zh-CN.md)
+<img src="https://flagcdn.com/w20/fr.png" alt="France" style="height:14px;"> [Français](../../../README.md) · <img src="https://flagcdn.com/w20/gb.png" alt="English" style="height:14px;"> [English](README.md) · <img src="https://flagcdn.com/w20/es.png" alt="Español" style="height:14px;"> [Español](../es/README.md) · <img src="https://flagcdn.com/w20/br.png" alt="Português (Brasil)" style="height:14px;"> [Português (Brasil)](../pt-BR/README.md) · <img src="https://flagcdn.com/w20/it.png" alt="Italiano" style="height:14px;"> [Italiano](../it/README.md) · <img src="https://flagcdn.com/w20/de.png" alt="Deutsch" style="height:14px;"> [Deutsch](../de/README.md) · <img src="https://flagcdn.com/w20/nl.png" alt="Nederlands" style="height:14px;"> [Nederlands](../nl/README.md) · <img src="https://flagcdn.com/w20/pl.png" alt="Polski" style="height:14px;"> [Polski](../pl/README.md) · <img src="https://flagcdn.com/w20/ru.png" alt="Русский" style="height:14px;"> [Русский](../ru/README.md) · <img src="https://flagcdn.com/w20/cn.png" alt="中文" style="height:14px;"> [中文](../zh-CN/README.md) · <img src="https://flagcdn.com/w20/vn.png" alt="Tiếng Việt" style="height:14px;"> [Tiếng Việt](../vi/README.md) · <img src="https://flagcdn.com/w20/th.png" alt="ไทย" style="height:14px;"> [ไทย](../th/README.md) · <img src="https://flagcdn.com/w20/id.png" alt="Bahasa Indonesia" style="height:14px;"> [Bahasa Indonesia](../id/README.md) · <img src="https://flagcdn.com/w20/jp.png" alt="日本語" style="height:14px;"> [日本語](../ja/README.md) · <img src="https://flagcdn.com/w20/kr.png" alt="한국어" style="height:14px;"> [한국어](../ko/README.md) · <img src="https://flagcdn.com/w20/in.png" alt="हिन्दी" style="height:14px;"> [हिन्दी](../hi/README.md) · <img src="https://flagcdn.com/w20/ae.png" alt="العربية" style="height:14px;"> [العربية](../ar/README.md)
+
 ---
 
 Preconfigured catalog of [fail2ban](https://www.fail2ban.org/) jails
@@ -51,9 +52,13 @@ even over Tailscale. This bridge is always *fail-open*: an error here
 (omega-serv missing, config not found) never makes the default network
 ban fail for everyone else.
 
-**Networks never banned.** Only external traffic can be banned: localhost, Tailscale (`100.64.0.0/10`) and the local network never are. Each generated jail gets an `ignoreip` line with the list **provided by omega-serv itself** (`omega-serv waf never-auto-block`, setting `options.waf.reputation.never_auto_block`) — never a hard-coded copy here. An `ignoreip` already defined in `[DEFAULT]` is kept and extended, never overwritten. The Tailscale bridge never relays the ban of an exempt address: with the default settings it therefore relays nothing anymore (your external visitors arrive with their real public address). If omega-serv is missing or too old, only localhost is exempt, with a warning in the report. An existing installation is only updated with `--apply --force`.
+**Behind a local proxy (Tailscale Funnel, reverse proxy on the same machine).** Connections then come from the local host: the network ban never reaches the visitor. Omega-Jail detects it (omega-serv trusted proxy covering `127.0.0.1` or `::1`) and the bridge then relays every ban of a public address to the omega-serv blocklist, which answers `451` — the same path as the magnet script. RIPOSTE jails are not relayed: RIPOSTE has already set its local ban.
+
+**Networks never banned.** Only external traffic can be banned: localhost, Tailscale (`100.64.0.0/10`) and the local network never are. Each generated jail gets an `ignoreip` line with the list **provided by omega-serv itself** (`omega-serv waf never-auto-block`, setting `options.waf.reputation.never_auto_block`) — never a hard-coded copy here. An `ignoreip` already defined in `[DEFAULT]` is kept and extended, never overwritten. The Tailscale bridge never relays the ban of an exempt address: with the default settings it therefore relays nothing anymore (your external visitors arrive with their real public address). Except behind a local proxy: see the previous paragraph. If omega-serv is missing or too old, only localhost is exempt, with a warning in the report. An existing installation is only updated with `--apply --force`.
 
 ## Catalog
+
+**10 jails**: 6 base jails, installed once, and 4 RIPOSTE jails, installed for **each** omega-serv instance (prefixed with its service name, e.g. `omega-serv-riposte-1h`).
 
 | Jail | Source | Trigger |
 |---|---|---|
@@ -63,11 +68,23 @@ ban fail for everyone else.
 | `omega-serv-active-defense` | Active Defense enriched log | 2 `hostile`/`contained` requests / 15 min |
 | `omega-serv-auth-bruteforce` | omega-serv access log | 5 `401` responses / 5 min |
 | `omega-serv-scan` | omega-serv access log | 15 `404` responses / 2 min |
+| `<service>-riposte-1h` | RIPOSTE network bans (omega-serv 2.1.0), one set per instance | tiers from 1 h to under 6 h: 1 h ban |
+| `<service>-riposte-6h` | RIPOSTE network bans (omega-serv 2.1.0), one set per instance | tiers from 6 h to under 24 h: 6 h ban |
+| `<service>-riposte-24h` | RIPOSTE network bans (omega-serv 2.1.0), one set per instance | tiers from 24 h to under 7 days: 24 h ban |
+| `<service>-riposte-7d` | RIPOSTE network bans (omega-serv 2.1.0), one set per instance | tiers of 7 days or more: 7-day ban |
 
 Each jail is only installed if its corresponding source is actually
 configured on the omega-serv side (native WAF enabled, Active Defense
-enabled, `magnet` extra configured) — otherwise it is reported as not
-applicable, never created blindly.
+enabled, `magnet` extra configured, RIPOSTE enabled with network bans) —
+otherwise it is reported as not applicable, never created blindly.
+
+**RIPOSTE jails (since 1.1.0).** RIPOSTE, the graduated response module
+of omega-serv 2.1.0, writes each of its network bans to its journal;
+Omega-Jail installs four fixed-duration jails (1 h, 6 h, 24 h, 7 days)
+and each RIPOSTE tier goes to the longest one that does not exceed it.
+Every omega-serv instance on the machine is detected automatically
+(systemd services and the instance registry): each one gets its own
+jails, prefixed with its service name.
 
 ## Installation
 
@@ -88,6 +105,8 @@ of `omega-serv.sh`, a few seconds) — a single candidate is saved
 automatically; zero or several, it asks you again. That path is
 remembered in `.serv-root` (never committed): you never have to type
 it again afterward.
+
+**Updating.** From the parent folder, extract the archive over the existing folder (`tar -xzf omega-jail.tar.gz`, without the “Already extracted” guard above), then run `./install.sh` again: the omega-serv path already saved is kept. If the catalog contains new applicable jails (for example the RIPOSTE jails of 1.1.0), they are listed and then installed after confirmation (`sudo`); jails already installed are never touched. Omega-Fire then shows them automatically, with no further setting.
 
 ## Usage
 
@@ -119,7 +138,8 @@ Useful options:
   directory path, only needed if fail2ban isn't installed at the
   standard location.
 - `--only`: takes the name of a catalog jail, to install a single
-  entry only.
+  entry only (`--only riposte-7d`: the 7-day RIPOSTE jail of every
+  instance).
 - `--force`: overwrites an existing `jail.d/` file for a catalog jail
   (without this option, a filename collision is always reported and
   never silently overwritten).
@@ -142,4 +162,4 @@ name) is automatically detected and skipped, never duplicated.
 
 ## License
 
-Distributed under the MIT license. See the [LICENSE](LICENSE) file.
+Distributed under the MIT license. See the [LICENSE](../../../LICENSE) file.

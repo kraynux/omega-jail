@@ -18,6 +18,7 @@ KNOWN_LOGPATH_KEYS: frozenset[str] = frozenset(
         "waf_alerts_log",
         "active_defense_log",
         "access_log",
+        "riposte_decisions_log",
     }
 )
 
@@ -34,6 +35,9 @@ class JailSpec:
     failregex: str | None = None
     failregex_json: str | None = None
     failregex_plain: str | None = None
+    per_instance: bool = False
+    """RIPOSTE (lot 6) : un jail PAR INSTANCE omega-serv, nomme `<service>-<name>` (ex.
+    omega-serv-blog-riposte-6h), sur le journal de cette instance."""
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -89,6 +93,7 @@ def _jail_spec_from_dict(data: dict[str, Any]) -> JailSpec:
         failregex=data.get("failregex"),
         failregex_json=data.get("failregex_json"),
         failregex_plain=data.get("failregex_plain"),
+        per_instance=bool(data.get("per_instance", False)),
     )
 
 

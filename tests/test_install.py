@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from omega_jail.install import InstallConfig, apply, prepare
@@ -108,6 +109,41 @@ def test_apply_creates_empty_logpath_file_when_missing(tmp_path: Path) -> None:
     assert logpath.read_text(encoding="utf-8") == ""
 
 
+def test_created_logpath_is_shared_with_the_service(tmp_path: Path) -> None:
+    """Cree par root, le journal doit rester inscriptible par le groupe du service
+    (proprietaire et groupe du dossier, 664) - sinon les bans reseau RIPOSTE sont
+    perdus sans message."""
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-access")
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+    log_dir = serv_root / "var" / "log"
+    log_dir.mkdir(parents=True)
+
+    old_umask = os.umask(0o022)
+    try:
+        apply(report, config)
+    finally:
+        os.umask(old_umask)
+
+    logpath = log_dir / "access.log"
+    assert logpath.stat().st_mode & 0o777 == 0o664
+    assert (logpath.stat().st_uid, logpath.stat().st_gid) == (log_dir.stat().st_uid, log_dir.stat().st_gid)
+
+
+def test_existing_logpath_permissions_are_left_untouched(tmp_path: Path) -> None:
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-access")
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+    logpath = serv_root / "var" / "log" / "access.log"
+    logpath.parent.mkdir(parents=True)
+    logpath.write_text("", encoding="utf-8")
+    logpath.chmod(0o640)
+
+    apply(report, config)
+
+    assert logpath.stat().st_mode & 0o777 == 0o640
+
+
 def test_apply_never_overwrites_an_existing_logpath_file(tmp_path: Path) -> None:
     serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
     config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, only="sample-access")
@@ -149,10 +185,39 @@ def test_collision_without_force_is_skipped_and_not_overwritten(tmp_path: Path) 
     config = _config(tmp_path, serv_root, jail_d, filter_d, action_d)
     report = prepare(config, catalog_path=_write_catalog(tmp_path))
     outcome = next(a for a in report.plan if a.name == "sample-access")
-    assert outcome.outcome == "skip_collision"
+    # different du catalogue : signale « a mettre a jour », jamais remplace sans --update
+    assert outcome.outcome == "skip_outdated"
+    assert "--update" in outcome.detail
 
     apply(report, config)
     assert "edite a la main" in existing_file.read_text(encoding="utf-8")
+
+
+def test_installed_jail_identical_to_catalog_is_left_alone(tmp_path: Path) -> None:
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d)
+    apply(prepare(config, catalog_path=_write_catalog(tmp_path)), config)
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+    assert next(a for a in report.plan if a.name == "sample-access").outcome == "skip_collision"
+
+
+def test_update_replaces_outdated_filter_and_keeps_a_backup(tmp_path: Path) -> None:
+    # 2026-11-02 : jails 404/401 corriges, restes sans effet tant que le filtre installe n'etait pas regenere.
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d)
+    apply(prepare(config, catalog_path=_write_catalog(tmp_path)), config)
+    filter_file = filter_d / "omega-jail-sample-access.conf"
+    current = filter_file.read_text(encoding="utf-8")
+    filter_file.write_text("[Definition]\nfailregex = ancienne\n", encoding="utf-8")
+
+    report = prepare(config, catalog_path=_write_catalog(tmp_path))
+    assert next(a for a in report.plan if a.name == "sample-access").outcome == "skip_outdated"
+
+    update_config = _config(tmp_path, serv_root, jail_d, filter_d, action_d, update=True)
+    updated = apply(prepare(update_config, catalog_path=_write_catalog(tmp_path)), update_config)
+    assert next(a for a in updated.plan if a.name == "sample-access").outcome == "update"
+    assert filter_file.read_text(encoding="utf-8") == current
+    assert (filter_d / "omega-jail-sample-access.conf.bak").read_text(encoding="utf-8") == "[Definition]\nfailregex = ancienne\n"
 
 
 def test_collision_with_force_overwrites(tmp_path: Path) -> None:

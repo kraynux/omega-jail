@@ -21,7 +21,7 @@ def _plain_jail(name: str = "omega-serv-scan") -> JailSpec:
         maxretry=15,
         findtime=120,
         bantime=3600,
-        failregex=r'^<HOST> \S+ \S+ \[[^\]]+\] ".*" 404',
+        failregex=r'^<HOST> \S+ \S+ \[[^\]]*\] "[^"]*" 404\s',
     )
 
 

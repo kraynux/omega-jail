@@ -22,6 +22,7 @@ cote service_rules.py). Lire le mauvais champ ferait pointer le jail
 WAF vers un fichier que personne n'ecrit jamais."""
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ _DEFAULT_WAF_ALERTS_LOG = "var/log/waf-alerts.log"
 _DEFAULT_ACTIVE_DEFENSE_LOG = "var/log/active-defense-enriched.jsonl"
 _DEFAULT_MAGNET_ALERTS_LOG = "var/log/waf-magnet-alerts.log"
 _DEFAULT_MAGNET_BLOCKLIST_LOG = "var/log/waf-magnet-blocklist.log"
+_DEFAULT_RIPOSTE_DECISIONS_LOG = "var/log/riposte-decisions.jsonl"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,14 @@ class DetectedPaths:
     waf_alerts_log: Path | None
     active_defense_log: Path | None
     magnet: MagnetInfo | None
+    riposte_decisions_log: Path | None = None
+    """Journal des bans reseau de RIPOSTE (options.riposte.decisions_log_path) ; None si RIPOSTE est
+    desactive ou son journal reseau coupe (options.riposte.network_ban_log = false)."""
+    behind_local_proxy: bool = False
+    """omega-serv recoit ses visiteurs par un proxy LOCAL (proxy de confiance actif couvrant 127.0.0.1 ou ::1 :
+    Tailscale Funnel, reverse proxy sur la meme machine). Les connexions viennent alors de l'hote local, le ban
+    pare-feu de fail2ban ne touche jamais l'IP du visiteur : seul le relais vers la blocklist d'omega-serv
+    (page 451) protege (retour utilisateur 2026-11-02, craftdark ; meme circuit que Magnet sur hpc)."""
 
     def resolve_logpath(self, logpath_key: str) -> Path | None:
         if logpath_key == "access_log":
@@ -62,6 +72,8 @@ class DetectedPaths:
             return self.magnet.alerts_log if self.magnet else None
         if logpath_key == "waf_magnet_blocklist_log":
             return self.magnet.blocklist_log if self.magnet else None
+        if logpath_key == "riposte_decisions_log":
+            return self.riposte_decisions_log
         return None
 
 
@@ -104,6 +116,20 @@ def _resolve_magnet(serv_root: Path, waf_options: dict[str, Any]) -> MagnetInfo 
     return MagnetInfo(alerts_log=alerts_log, blocklist_log=blocklist_log, use_json_logs=use_json_logs)
 
 
+def _behind_local_proxy(trusted_proxy: dict[str, Any]) -> bool:
+    if not trusted_proxy.get("enabled", False):
+        return False
+    loopbacks = (ipaddress.ip_address("127.0.0.1"), ipaddress.ip_address("::1"))
+    for network in trusted_proxy.get("trusted_networks") or []:
+        try:
+            parsed = ipaddress.ip_network(str(network), strict=False)
+        except ValueError:
+            continue
+        if any(address.version == parsed.version and address in parsed for address in loopbacks):
+            return True
+    return False
+
+
 def detect(serv_root: Path, config_rel_path: str = DEFAULT_CONFIG_REL_PATH) -> DetectedPaths:
     config = _read_json(serv_root / config_rel_path)
 
@@ -126,9 +152,16 @@ def detect(serv_root: Path, config_rel_path: str = DEFAULT_CONFIG_REL_PATH) -> D
 
     magnet = _resolve_magnet(serv_root, waf_options)
 
+    riposte_options = options.get("riposte") or {}
+    riposte_decisions_log: Path | None = None
+    if riposte_options.get("enabled", False) and riposte_options.get("network_ban_log", True):
+        riposte_decisions_log = serv_root / riposte_options.get("decisions_log_path", _DEFAULT_RIPOSTE_DECISIONS_LOG)
+
     return DetectedPaths(
+        behind_local_proxy=_behind_local_proxy(options.get("trusted_proxy") or {}),
         access_log=access_log,
         waf_alerts_log=waf_alerts_log,
         active_defense_log=active_defense_log,
         magnet=magnet,
+        riposte_decisions_log=riposte_decisions_log,
     )

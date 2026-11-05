@@ -10,6 +10,7 @@
 #   waf_alerts_log            -> log d'alerte WAF natif omega-serv (JSON)
 #   active_defense_log        -> log enrichi Active Defense omega-serv (JSON)
 #   access_log                -> log d'acces combine omega-serv
+#   riposte_decisions_log     -> bans reseau RIPOSTE omega-serv (JSON, un jail par instance)
 #
 # format: "plain" | "json" | "auto" (determine a l'installation via la
 # config reelle d'omega-waf.lua, use_json_logs)
@@ -65,13 +66,18 @@ jails:
     findtime: 900
     bantime: 86400
 
+  # Lignes d'access.log (2026-11-02) : fail2ban RETIRE la date qu'il reconnait avant d'appliquer failregex -
+  # il reste « [] ». L'ancien `\[[^\]]+\]` (au moins un caractere) ne correspondait donc jamais : ces deux jails
+  # n'ont jamais banni personne (craftdark : « Total failed: 0 » malgre 28 x 404 en 28 s). `"[^"]*"` : le statut
+  # suit le champ requete lui-meme (omega-serv ecrit un guillemet client en \x22), jamais un chiffre plus loin
+  # sur la ligne (identifiant de requete commencant par 404...).
   - name: omega-serv-auth-bruteforce
     description: >
       Brute-force sur une zone protegee (Basic Auth) d'omega-serv.
       Generique : ne depend pas de connaitre les chemins des zones.
     logpath_key: access_log
     format: plain
-    failregex: '^<HOST> \S+ \S+ \[[^\]]+\] ".*" 401'
+    failregex: '^<HOST> \S+ \S+ \[[^\]]*\] "[^"]*" 401\s'
     maxretry: 5
     findtime: 300
     bantime: 3600
@@ -83,7 +89,55 @@ jails:
       isolee d'un visiteur legitime.
     logpath_key: access_log
     format: plain
-    failregex: '^<HOST> \S+ \S+ \[[^\]]+\] ".*" 404'
+    failregex: '^<HOST> \S+ \S+ \[[^\]]*\] "[^"]*" 404\s'
     maxretry: 15
     findtime: 120
     bantime: 3600
+
+  # RIPOSTE (omega-serv 2.1.0, lot 6) : bans reseau par palier. omega-serv ecrit une ligne par ban dans
+  # riposte-decisions.jsonl, avec la jail visee ("jail": "1h" | "6h" | "24h" | "7d" : la plus longue qui ne
+  # depasse pas le palier). Un jail PAR INSTANCE (per_instance) : <service>-riposte-<duree>. RIPOSTE a deja
+  # tout decide (recidive, exclusions) : maxretry 1.
+  - name: riposte-1h
+    description: >
+      Ban reseau RIPOSTE de 1 h (paliers RIPOSTE de 1 h a moins de 6 h).
+    logpath_key: riposte_decisions_log
+    per_instance: true
+    format: json
+    failregex: '"remote_ip": "<HOST>", "jail": "1h"'
+    maxretry: 1
+    findtime: 600
+    bantime: 3600
+
+  - name: riposte-6h
+    description: >
+      Ban reseau RIPOSTE de 6 h (paliers RIPOSTE de 6 h a moins de 24 h).
+    logpath_key: riposte_decisions_log
+    per_instance: true
+    format: json
+    failregex: '"remote_ip": "<HOST>", "jail": "6h"'
+    maxretry: 1
+    findtime: 600
+    bantime: 21600
+
+  - name: riposte-24h
+    description: >
+      Ban reseau RIPOSTE de 24 h (paliers RIPOSTE de 24 h a moins de 7 j).
+    logpath_key: riposte_decisions_log
+    per_instance: true
+    format: json
+    failregex: '"remote_ip": "<HOST>", "jail": "24h"'
+    maxretry: 1
+    findtime: 600
+    bantime: 86400
+
+  - name: riposte-7d
+    description: >
+      Ban reseau RIPOSTE de 7 j (paliers RIPOSTE de 7 j et plus).
+    logpath_key: riposte_decisions_log
+    per_instance: true
+    format: json
+    failregex: '"remote_ip": "<HOST>", "jail": "7d"'
+    maxretry: 1
+    findtime: 600
+    bantime: 604800

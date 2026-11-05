@@ -9,7 +9,7 @@ REAL_CATALOG = REPO_ROOT / "catalog.yaml"
 def test_real_catalog_loads_and_validates_clean() -> None:
     catalog = load_catalog(REAL_CATALOG)
     assert catalog.validate() == []
-    assert len(catalog.jails) == 6
+    assert len(catalog.jails) == 10
 
 
 def test_real_catalog_has_expected_jail_names() -> None:
@@ -22,7 +22,12 @@ def test_real_catalog_has_expected_jail_names() -> None:
         "omega-serv-active-defense",
         "omega-serv-auth-bruteforce",
         "omega-serv-scan",
+        "riposte-1h",
+        "riposte-6h",
+        "riposte-24h",
+        "riposte-7d",
     }
+    assert {jail.name for jail in catalog.jails if jail.per_instance} == {"riposte-1h", "riposte-6h", "riposte-24h", "riposte-7d"}
 
 
 def test_get_returns_none_for_unknown_name() -> None:

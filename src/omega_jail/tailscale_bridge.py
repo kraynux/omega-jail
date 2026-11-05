@@ -27,6 +27,7 @@ import pwd
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from string import Template
 
@@ -47,6 +48,7 @@ def render_action_conf(
     servconfig: str = "",
     tailscale_cidr: str = DEFAULT_TAILSCALE_CIDR,
     exempt: str = "",
+    relay_all: bool = False,
 ) -> str:
     template = Template(TEMPLATE_PATH.read_text(encoding="utf-8"))
     return template.substitute(
@@ -55,6 +57,7 @@ def render_action_conf(
         servconfig=servconfig,
         tailscale_cidr=tailscale_cidr,
         exempt=exempt,
+        relay_all="1" if relay_all else "0",
     )
 
 
@@ -119,25 +122,129 @@ def run_blocklist_command(
     args = [servcli]
     if servconfig:
         args += ["--config", servconfig]
-    args += ["blocklist", action, "--network", f"{ip}/32"]
+    args += ["blocklist", action, "--network", host_network(ip)]
     if action == "add":
         args += ["--reason", reason]
         if bantime_seconds is not None:
             args += ["--duration-seconds", str(bantime_seconds)]
+    _run_servcli(servcli, args)
 
+
+def host_network(ip: str) -> str:
+    """Une seule adresse : /32 en IPv4, /128 en IPv6 (2026-11-02 : « /32 » etait ajoute aussi a une IPv6,
+    soit un bloc entier d'operateur - sans effet tant que seules les IP Tailscale etaient relayees)."""
+    try:
+        return f"{ip}/128" if ipaddress.ip_address(ip).version == 6 else f"{ip}/32"
+    except ValueError:
+        return f"{ip}/32"
+
+
+def _run_servcli(servcli: str, args: list[str], *, capture: bool = False) -> str | None:
     run_as = run_as_installation_owner(servcli)
-    extra: dict[str, object] = {}
+    # Francais force : sortie de « blocklist list » jamais traduite (« permanent »), lue par le pont.
+    env = {**os.environ, "OMEGA_SERV_LANG": "fr"}
+    extra: dict[str, object] = {"env": env}
     if run_as is not None:
         extra = {
             "user": run_as.user, "group": run_as.group, "extra_groups": list(run_as.extra_groups),
-            "env": {**os.environ, "HOME": run_as.home},
+            "env": {**env, "HOME": run_as.home},
         }
     try:
-        subprocess.run(args, check=False, capture_output=True, timeout=10, **extra)  # type: ignore[call-overload]
+        result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=10, **extra)  # type: ignore[call-overload]
     except OSError as exc:
         _warn(f"echec appel {servcli} (fail-open, ban nftables inchange) : {exc}")
+        return None
     except subprocess.TimeoutExpired:
         _warn(f"timeout appel {servcli} (fail-open)")
+        return None
+    if capture:
+        return result.stdout if result.returncode == 0 else None
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class BlocklistLine:
+    network: str
+    source: str
+    expires_at: datetime | None
+    """None = permanent (ou date illisible : traitee comme permanente, dans le doute on ne touche a rien)."""
+    reason: str
+
+
+BRIDGE_REASON_PREFIX = "omega-jail:"
+
+
+def read_blocklist(servcli: str, servconfig: str = "") -> list[BlocklistLine] | None:
+    """Entrees de la blocklist d'omega-serv ; None si illisible (le pont reste alors prudent)."""
+    if not servcli:
+        return None
+    args = [servcli] + (["--config", servconfig] if servconfig else []) + ["blocklist", "list"]
+    output = _run_servcli(servcli, args, capture=True)
+    if output is None:
+        return None
+    return parse_blocklist_list(output)
+
+
+def parse_blocklist_list(output: str) -> list[BlocklistLine]:
+    lines: list[BlocklistLine] = []
+    for raw in output.splitlines():
+        fields = raw.split("\t")
+        if len(fields) < 4:
+            continue
+        try:
+            expires: datetime | None = datetime.fromisoformat(fields[2])
+            if expires is not None and expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+        except ValueError:
+            expires = None
+        lines.append(BlocklistLine(fields[0], fields[1], expires, "\t".join(fields[3:])))
+    return lines
+
+
+def _covering(entries: list[BlocklistLine], ip: str, now: datetime) -> list[BlocklistLine]:
+    address = ipaddress.ip_address(ip)
+    found = []
+    for entry in entries:
+        if entry.expires_at is not None and entry.expires_at <= now:
+            continue
+        try:
+            if address in ipaddress.ip_network(entry.network, strict=False):
+                found.append(entry)
+        except ValueError:
+            continue
+    return found
+
+
+def should_add(entries: list[BlocklistLine] | None, ip: str, bantime_seconds: int | None, now: datetime) -> bool:
+    """Jamais ecraser un ban plus fort qui n'est pas celui du pont : un ban manuel (decision humaine), permanent
+    ou plus long (ex. auto-ban WAF de 24 h, qu'un relais de 12 h aurait raccourci - constate le 2026-11-02 sur
+    craftdark, car `blocklist add` remplace toujours). Blocklist illisible : ajout (comportement d'avant)."""
+    if entries is None:
+        return True
+    target = None if bantime_seconds is None else now + timedelta(seconds=bantime_seconds)
+    for entry in _covering(entries, ip, now):
+        if entry.reason.startswith(BRIDGE_REASON_PREFIX):
+            continue
+        if entry.source == "manual" or entry.expires_at is None:
+            return False
+        if target is not None and entry.expires_at >= target:
+            return False
+    return True
+
+
+def should_remove(entries: list[BlocklistLine] | None, ip: str, now: datetime) -> bool:
+    """Ne retirer que l'entree posee par le pont lui-meme. Illisible : rien (elle expire d'elle-meme)."""
+    if entries is None:
+        return False
+    network = ipaddress.ip_network(host_network(ip), strict=False)
+    for entry in _covering(entries, ip, now):
+        try:
+            same = ipaddress.ip_network(entry.network, strict=False) == network
+        except ValueError:
+            continue
+        if same and entry.reason.startswith(BRIDGE_REASON_PREFIX):
+            return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,6 +257,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--jail", default="omega-jail")
     parser.add_argument("--bantime", type=int, default=None)
     parser.add_argument(
+        "--relay-all", default="0",
+        help="1 : omega-serv derriere un proxy local (Funnel) - relayer TOUTE adresse publique, pas seulement Tailscale",
+    )
+    parser.add_argument(
         "--exempt", default="",
         help="reseaux jamais bannis (virgules), fournis par omega-serv a l'installation",
     )
@@ -161,13 +272,24 @@ def main(argv: list[str] | None = None) -> int:
         # relaye pour une adresse exemptee (hote local, Tailscale, reseau local).
         _warn(f"{args.ip} est exemptee de ban automatique : rien n'est relaye")
         return 0
-    if is_tailscale_address(args.ip, args.cidr):
+    # Derriere un proxy local (2026-11-02), le ban pare-feu ne touche pas le visiteur : relais de toute adresse
+    # publique. Jamais pour une jail RIPOSTE : RIPOSTE a deja pose son ban local, et le debannissement de la
+    # jail (1 h) retirerait avant terme un ban RIPOSTE plus long (palier de 2 h -> jail de 1 h).
+    relay_all = args.relay_all == "1" and "-riposte-" not in args.jail
+    if relay_all or is_tailscale_address(args.ip, args.cidr):
+        now = datetime.now(timezone.utc)
+        entries = read_blocklist(args.servcli, args.servconfig)
+        if args.mode == "ban" and not should_add(entries, args.ip, args.bantime, now):
+            _warn(f"{args.ip} deja bannie plus fortement dans omega-serv : ban existant conserve")
+            return 0
+        if args.mode == "unban" and not should_remove(entries, args.ip, now):
+            return 0
         run_blocklist_command(
             args.servcli,
             "add" if args.mode == "ban" else "remove",
             args.ip,
             servconfig=args.servconfig,
-            reason=f"omega-jail:{args.jail}",
+            reason=f"{BRIDGE_REASON_PREFIX}{args.jail}",
             bantime_seconds=args.bantime,
         )
     return 0
