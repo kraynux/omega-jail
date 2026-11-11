@@ -236,6 +236,18 @@ if [ "$IS_UPDATE" -eq 1 ] && command -v fail2ban-client >/dev/null 2>&1; then
     fi
 fi
 
+# -------------------------------------------------------------------------
+# 7. Jeton d'installation (var/omega-jeton.json, contrats d'interconnexion
+#    2026-11-10) : lu par omega-connect, sans rien executer. Ecrit sous votre
+#    compte, jamais en root ; un echec ne bloque jamais l'installation.
+# -------------------------------------------------------------------------
+if .venv/bin/omega-jail synchro jeton >/dev/null 2>&1; then
+    ok "Jeton d'installation à jour (var/omega-jeton.json)."
+else
+    warn "Jeton d'installation non écrit : omega-connect ne verra pas cette installation tant qu'il manque."
+    tip "Créez-le sans sudo avec : ${SCRIPT_DIR}/omega-jail.sh synchro jeton"
+fi
+
 echo ""
 ok "Installation terminée."
 if [ "$IS_UPDATE" -eq 1 ]; then

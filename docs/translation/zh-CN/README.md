@@ -48,6 +48,8 @@ Tailscale,"已封禁/未封禁"的区别依然可见。这个桥接机制始终�
 
 **位于本地代理之后(Tailscale Funnel、同一台机器上的反向代理)。** 此时连接来自本机:网络封禁永远触及不到访客。Omega-Jail 会检测到这一点(omega-serv 的可信代理覆盖 `127.0.0.1` 或 `::1`),桥接随后会把每个公网地址的封禁转发到 omega-serv 的 blocklist,由它返回 `451`——与 magnet 脚本的路径相同。RIPOSTE 的 jail 不会被转发:RIPOSTE 已经施加了本地封禁。
 
+**桥接程序的运行位置。** `--apply` 会在 `/usr/local/lib/omega-jail/`（选项 `--bridge-dir`）安装一份归 root 所有的独立桥接副本，用系统 Python 运行：fail2ban 不再执行位于 Omega-Jail 文件夹中的代码，删除该文件夹也不会再破坏桥接。每个 omega-serv 实例都有自己的动作（`omega-jail-tailscale-bridge-<service>`），转发到**它自己的** blocklist。桥接以来源 `omega-jail:<jail>` 标记它的封禁，并且只解除自己的封禁，一次操作完成（omega-serv 2.6.1 或更新版本；否则沿用以前的行为）。
+
 **永不封禁的网络。** 只有外部流量可能被封禁:本机、Tailscale(`100.64.0.0/10`)和本地网络永远不会被封禁。每个生成的 jail 都会获得一行 `ignoreip`,其列表**由 omega-serv 自身提供**(`omega-serv waf never-auto-block`,对应设置 `options.waf.reputation.never_auto_block`)——这里从不硬编码副本。`[DEFAULT]` 中已定义的 `ignoreip` 会被保留并补充,绝不会被覆盖。Tailscale 桥接从不转发被豁免地址的封禁:在默认设置下它因此不再转发任何内容(外部访客以其真实公网地址到达)。位于本地代理之后的情况除外:见上一段。若找不到 omega-serv 或其版本过旧,则只豁免本机,并在报告中给出警告。已有的安装只有使用 `--apply --force` 才会更新。
 
 ## 目录清单
@@ -133,6 +135,21 @@ chmod +x install.sh
 每次执行都可以安全地重复运行:之前运行已创建的 jail(或任何已经监控
 同一日志文件的外部 jail,无论其名称如何)都会被自动检测并跳过,绝不
 会重复创建。
+
+## 联系与支持
+
+omega-jail 没有图形界面：其他 omega 工具的 **联系与支持** 功能通过命令行提供。
+
+```bash
+./omega-jail.sh contact                              # 咖啡（PayPal）、支持邮箱和表单
+./omega-jail.sh declaration declare --pays FR        # 显示确切的消息，不发送任何内容
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # 不再登记我
+./omega-jail.sh version --check                      # 最新发布的版本
+```
+
+登记是自愿的，默认关闭，且只发送一次：仅用于统计用户数量，以及（如您愿意）其所在的大洲或国家（封闭列表，绝无自由文本）。它发送一个随机生成的密钥、软件名称（`omega-jail`）及其版本；绝不发送姓名、机器名称、设置、目标或结果。IP 地址不会记录在登记中，但与任何访问一样，会经过接收服务器的安全检查和日志。 `version --check` 仅读取网站上已发布版本的列表；不发送任何内容。
 
 ## 前置条件
 

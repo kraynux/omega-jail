@@ -56,6 +56,8 @@ mislukken.
 
 **Achter een lokale proxy (Tailscale Funnel, reverse proxy op dezelfde machine).** De verbindingen komen dan van de lokale host: de netwerkban bereikt de bezoeker nooit. Omega-Jail detecteert dat (vertrouwde proxy van omega-serv die `127.0.0.1` of `::1` dekt) en de brug geeft dan elke ban van een publiek adres door aan de blocklist van omega-serv, die met `451` antwoordt — hetzelfde circuit als het magnet-script. De RIPOSTE-jails worden niet doorgegeven: RIPOSTE heeft zijn lokale ban al gezet.
 
+**Waar de brug draait.** `--apply` installeert een zelfstandige kopie van de brug, eigendom van root, in `/usr/local/lib/omega-jail/` (optie `--bridge-dir`), gestart met de Python van het systeem: fail2ban voert geen code meer uit die in de map van Omega-Jail staat, en die map verwijderen breekt de brug niet meer. Elke omega-serv-instantie heeft een eigen actie (`omega-jail-tailscale-bridge-<service>`), die doorstuurt naar **haar** blocklist. De brug markeert haar blokkeringen met de herkomst `omega-jail:<jail>` en heft alleen haar eigen op, in één bewerking (omega-serv 2.6.1 of nieuwer; anders het vorige gedrag).
+
 **Netwerken die nooit geband worden.** Alleen extern verkeer kan geband worden: de lokale host, Tailscale (`100.64.0.0/10`) en het lokale netwerk nooit. Elke gegenereerde jail krijgt een regel `ignoreip` met de lijst **die omega-serv zelf levert** (`omega-serv waf never-auto-block`, instelling `options.waf.reputation.never_auto_block`) — nooit een vaste kopie hier. Een `ignoreip` die al in `[DEFAULT]` staat, blijft behouden en wordt aangevuld, nooit overschreven. De Tailscale-brug geeft de ban van een vrijgesteld adres nooit door: met de standaardinstellingen geeft ze dus niets meer door (uw externe bezoekers komen binnen met hun echte publieke adres). Behalve achter een lokale proxy: zie de vorige alinea. Is omega-serv niet te vinden of te oud, dan is alleen de lokale host vrijgesteld, met een waarschuwing in het rapport. Een bestaande installatie wordt alleen bijgewerkt met `--apply --force`.
 
 ## Catalogus
@@ -154,6 +156,21 @@ Elke uitvoering kan veilig herhaald worden: een jail die een eerdere
 uitvoering al aanmaakte (of elke externe jail die hetzelfde logbestand
 al bewaakt, onder welke naam ook) wordt automatisch herkend en
 overgeslagen, nooit verdubbeld.
+
+## Contact en ondersteuning
+
+omega-jail heeft geen interface: de functie **Contact en ondersteuning** van de andere omega-hulpmiddelen loopt via de opdrachtregel.
+
+```bash
+./omega-jail.sh contact                              # koffie (PayPal), e-mail en formulier van de ondersteuning
+./omega-jail.sh declaration declare --pays FR        # toont het exacte bericht, er wordt niets verzonden
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # mij niet meer aanmelden
+./omega-jail.sh version --check                      # laatst gepubliceerde versie
+```
+
+De aanmelding is vrijwillig, standaard uitgeschakeld en wordt maar één keer verzonden: ze dient alleen om de gebruikers te tellen en, als u dat wilt, hun continent of land (gesloten lijsten, nooit vrije tekst). Ze verzendt een willekeurig gekozen sleutel, de naam van de software (`omega-jail`) en de versie; nooit een naam, een machinenaam, een instelling, een doel of een resultaat. Het IP-adres wordt niet opgeslagen in de aanmeldingen, maar gaat, zoals bij elk bezoek, door de beveiligingscontroles en het logboek van de ontvangende server. `version --check` leest alleen de lijst van versies die op de site gepubliceerd zijn; er wordt niets verzonden.
 
 ## Vereisten
 

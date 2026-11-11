@@ -54,6 +54,8 @@ ban fail for everyone else.
 
 **Behind a local proxy (Tailscale Funnel, reverse proxy on the same machine).** Connections then come from the local host: the network ban never reaches the visitor. Omega-Jail detects it (omega-serv trusted proxy covering `127.0.0.1` or `::1`) and the bridge then relays every ban of a public address to the omega-serv blocklist, which answers `451` — the same path as the magnet script. RIPOSTE jails are not relayed: RIPOSTE has already set its local ban.
 
+**Where the bridge runs.** `--apply` installs a standalone copy of the bridge, owned by root, in `/usr/local/lib/omega-jail/` (option `--bridge-dir`), run with the system Python: fail2ban no longer runs code located in Omega-Jail's folder, and deleting that folder no longer breaks the bridge. Each omega-serv instance has its own action (`omega-jail-tailscale-bridge-<service>`), which relays to **its** blocklist. The bridge marks its bans with the origin `omega-jail:<jail>` and only lifts its own, in a single operation (omega-serv 2.6.1 or later; otherwise, previous behavior).
+
 **Networks never banned.** Only external traffic can be banned: localhost, Tailscale (`100.64.0.0/10`) and the local network never are. Each generated jail gets an `ignoreip` line with the list **provided by omega-serv itself** (`omega-serv waf never-auto-block`, setting `options.waf.reputation.never_auto_block`) — never a hard-coded copy here. An `ignoreip` already defined in `[DEFAULT]` is kept and extended, never overwritten. The Tailscale bridge never relays the ban of an exempt address: with the default settings it therefore relays nothing anymore (your external visitors arrive with their real public address). Except behind a local proxy: see the previous paragraph. If omega-serv is missing or too old, only localhost is exempt, with a warning in the report. An existing installation is only updated with `--apply --force`.
 
 ## Catalog
@@ -152,6 +154,21 @@ Useful options:
 Every run is safe to repeat: a jail already created by a previous run
 (or any external jail already watching the same log file, under any
 name) is automatically detected and skipped, never duplicated.
+
+## Contact and support
+
+omega-jail has no interface: the **Contact and support** feature of the other omega tools goes through the command line.
+
+```bash
+./omega-jail.sh contact                              # coffee (PayPal), support email and form
+./omega-jail.sh declaration declare --pays FR        # shows the exact message, nothing is sent
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # stop declaring me
+./omega-jail.sh version --check                      # latest published version
+```
+
+The declaration is voluntary, off by default and sent only once: it is used only to count users and, if you wish, their continent or country (closed lists, never free text). It sends a randomly drawn key, the software name (`omega-jail`) and its version; never a name, a machine name, a setting, a target or a result. The IP address is not stored in the declarations, but, like any visit, it goes through the security checks and the log of the receiving server. `version --check` only reads the list of versions published on the site; nothing is sent.
 
 ## Requirements
 

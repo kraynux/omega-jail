@@ -46,6 +46,7 @@ def _config(tmp_path: Path, serv_root: Path, jail_d: Path, filter_d: Path, actio
         jail_d_dir=jail_d,
         filter_d_dir=filter_d,
         action_d_dir=action_d,
+        bridge_dir=Path(str(action_d)).parent / "omega-jail-lib",
         jail_conf_path=tmp_path / "fail2ban" / "jail.conf",
         jail_local_path=tmp_path / "fail2ban" / "jail.local",
         **overrides,
@@ -295,3 +296,33 @@ def test_invalid_catalog_raises_value_error(tmp_path: Path) -> None:
         assert False, "aurait du lever ValueError"
     except ValueError as exc:
         assert "logpath_key" in str(exc)
+
+
+def test_apply_update_restores_rights_on_existing_files(tmp_path: Path) -> None:
+    """Lot E de l'etape 3 d'omega-connect (2026-11-10) : `--apply --update` remet 0644 sur les fichiers omega-*
+    (contenu identique compris) et 0755 sur le script du pont ; un lien symbolique n'est jamais suivi."""
+    serv_root, jail_d, filter_d, action_d = _fake_fs(tmp_path)
+    config = _config(tmp_path, serv_root, jail_d, filter_d, action_d)
+    apply(prepare(config, catalog_path=_write_catalog(tmp_path)), config)
+    jail_file = jail_d / "omega-jail-sample-access.conf"
+    action_file = action_d / "omega-jail-tailscale-bridge.conf"
+    script = config.bridge_dir / "omega-jail-tailscale-bridge.py"
+    jail_file.chmod(0o666)
+    action_file.chmod(0o600)
+    script.chmod(0o777)
+    outside = tmp_path / "ailleurs.conf"
+    outside.write_text("x", encoding="utf-8")
+    outside.chmod(0o600)
+    (jail_d / "omega-lien.conf").symlink_to(outside)
+    foreign = jail_d / "sshd.local"
+    foreign.write_text("[sshd]\n", encoding="utf-8")
+    foreign.chmod(0o600)
+
+    updating = _config(tmp_path, serv_root, jail_d, filter_d, action_d, update=True)
+    apply(prepare(updating, catalog_path=_write_catalog(tmp_path)), updating)
+
+    assert jail_file.stat().st_mode & 0o7777 == 0o644
+    assert action_file.stat().st_mode & 0o7777 == 0o644
+    assert script.stat().st_mode & 0o7777 == 0o755
+    assert outside.stat().st_mode & 0o7777 == 0o600
+    assert foreign.stat().st_mode & 0o7777 == 0o600

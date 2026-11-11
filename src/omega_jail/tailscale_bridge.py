@@ -114,10 +114,14 @@ def run_blocklist_command(
     servconfig: str = "",
     reason: str = "omega-jail",
     bantime_seconds: int | None = None,
-) -> None:
+    origin: str | None = None,
+) -> bool | None:
+    """True : commande acceptee ; False : refusee (ex. aucune entree de cette origine) ; None : omega-serv
+    trop ancien pour `--origin` (option inconnue) ou injoignable - l'appelant retombe sur l'ancien
+    comportement."""
     if not servcli:
         _warn("servcli non configure, pont ignore (fail-open)")
-        return
+        return None
 
     args = [servcli]
     if servconfig:
@@ -127,7 +131,19 @@ def run_blocklist_command(
         args += ["--reason", reason]
         if bantime_seconds is not None:
             args += ["--duration-seconds", str(bantime_seconds)]
+    if origin is not None:
+        result = _run_servcli_result(servcli, args + ["--origin", origin])
+        if result is None:
+            return None
+        if result.returncode == 2 and "--origin" in result.stderr:
+            # omega-serv d'avant 2.6.1 : l'option n'existe pas encore.
+            if action == "add":
+                _run_servcli(servcli, args)
+                return True
+            return None
+        return result.returncode == 0
     _run_servcli(servcli, args)
+    return True
 
 
 def host_network(ip: str) -> str:
@@ -140,6 +156,15 @@ def host_network(ip: str) -> str:
 
 
 def _run_servcli(servcli: str, args: list[str], *, capture: bool = False) -> str | None:
+    result = _run_servcli_result(servcli, args)
+    if result is None:
+        return None
+    if capture:
+        return result.stdout if result.returncode == 0 else None
+    return None
+
+
+def _run_servcli_result(servcli: str, args: list[str]) -> subprocess.CompletedProcess[str] | None:
     run_as = run_as_installation_owner(servcli)
     # Francais force : sortie de « blocklist list » jamais traduite (« permanent »), lue par le pont.
     env = {**os.environ, "OMEGA_SERV_LANG": "fr"}
@@ -150,16 +175,13 @@ def _run_servcli(servcli: str, args: list[str], *, capture: bool = False) -> str
             "env": {**env, "HOME": run_as.home},
         }
     try:
-        result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=10, **extra)  # type: ignore[call-overload]
+        return subprocess.run(args, check=False, capture_output=True, text=True, timeout=10, **extra)  # type: ignore[call-overload]
     except OSError as exc:
         _warn(f"echec appel {servcli} (fail-open, ban nftables inchange) : {exc}")
         return None
     except subprocess.TimeoutExpired:
         _warn(f"timeout appel {servcli} (fail-open)")
         return None
-    if capture:
-        return result.stdout if result.returncode == 0 else None
-    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,20 +191,63 @@ class BlocklistLine:
     expires_at: datetime | None
     """None = permanent (ou date illisible : traitee comme permanente, dans le doute on ne touche a rien)."""
     reason: str
+    origin: str | None = None
+    """Outil qui a pose le ban (omega-serv 2.6.1+, `blocklist list --format json`) ; None sinon."""
 
 
 BRIDGE_REASON_PREFIX = "omega-jail:"
+BRIDGE_ORIGIN_PREFIX = "omega-jail:"
+
+
+def bridge_origin(jail: str) -> str:
+    """Origine posee dans omega-serv : `omega-jail:<jail>` (minuscules, caracteres admis par omega-serv)."""
+    cleaned = "".join(ch if ch.isalnum() or ch in "._:-" else "-" for ch in jail.lower())
+    return f"{BRIDGE_ORIGIN_PREFIX}{cleaned}"[:64]
+
+
+def _from_bridge(entry: BlocklistLine) -> bool:
+    return (entry.origin or "").startswith(BRIDGE_ORIGIN_PREFIX) or entry.reason.startswith(BRIDGE_REASON_PREFIX)
 
 
 def read_blocklist(servcli: str, servconfig: str = "") -> list[BlocklistLine] | None:
     """Entrees de la blocklist d'omega-serv ; None si illisible (le pont reste alors prudent)."""
     if not servcli:
         return None
-    args = [servcli] + (["--config", servconfig] if servconfig else []) + ["blocklist", "list"]
-    output = _run_servcli(servcli, args, capture=True)
+    base = [servcli] + (["--config", servconfig] if servconfig else []) + ["blocklist", "list"]
+    # Sortie JSON versionnee (omega-serv 2.6.1+), jamais traduite ; sinon ancienne sortie texte.
+    output = _run_servcli(servcli, base + ["--format", "json"], capture=True)
+    if output is not None:
+        parsed = parse_blocklist_json(output)
+        if parsed is not None:
+            return parsed
+    output = _run_servcli(servcli, base, capture=True)
     if output is None:
         return None
     return parse_blocklist_list(output)
+
+
+def parse_blocklist_json(output: str) -> list[BlocklistLine] | None:
+    import json
+
+    try:
+        payload = json.loads(output)
+        if payload.get("schema_version") != 1:
+            return None
+        lines: list[BlocklistLine] = []
+        for item in payload["entries"]:
+            expires: datetime | None = None
+            if item.get("expires_at"):
+                try:
+                    expires = datetime.fromisoformat(item["expires_at"])
+                    if expires.tzinfo is None:
+                        expires = expires.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    expires = None
+            lines.append(BlocklistLine(item["network"], item.get("source", ""), expires, item.get("reason", ""),
+                                       item.get("origin")))
+        return lines
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
 
 
 def parse_blocklist_list(output: str) -> list[BlocklistLine]:
@@ -223,7 +288,11 @@ def should_add(entries: list[BlocklistLine] | None, ip: str, bantime_seconds: in
         return True
     target = None if bantime_seconds is None else now + timedelta(seconds=bantime_seconds)
     for entry in _covering(entries, ip, now):
-        if entry.reason.startswith(BRIDGE_REASON_PREFIX):
+        if _from_bridge(entry):
+            # Ban d'un autre jail du pont : garde s'il dure plus longtemps (2026-11-10 : un jail de 12 h
+            # remplacait le ban de 24 h d'un autre jail, puis le levait au bout de 12 h).
+            if entry.expires_at is None or (target is not None and entry.expires_at >= target):
+                return False
             continue
         if entry.source == "manual" or entry.expires_at is None:
             return False
@@ -232,8 +301,9 @@ def should_add(entries: list[BlocklistLine] | None, ip: str, bantime_seconds: in
     return True
 
 
-def should_remove(entries: list[BlocklistLine] | None, ip: str, now: datetime) -> bool:
-    """Ne retirer que l'entree posee par le pont lui-meme. Illisible : rien (elle expire d'elle-meme)."""
+def should_remove(entries: list[BlocklistLine] | None, ip: str, now: datetime, jail: str | None = None) -> bool:
+    """Ne retirer que l'entree posee par le pont lui-meme - et, si `jail` est donne, par CE jail.
+    Illisible : rien (elle expire d'elle-meme)."""
     if entries is None:
         return False
     network = ipaddress.ip_network(host_network(ip), strict=False)
@@ -242,7 +312,9 @@ def should_remove(entries: list[BlocklistLine] | None, ip: str, now: datetime) -
             same = ipaddress.ip_network(entry.network, strict=False) == network
         except ValueError:
             continue
-        if same and entry.reason.startswith(BRIDGE_REASON_PREFIX):
+        if not same or not _from_bridge(entry):
+            continue
+        if jail is None or entry.reason == f"{BRIDGE_REASON_PREFIX}{jail}" or entry.origin == bridge_origin(jail):
             return True
     return False
 
@@ -278,19 +350,27 @@ def main(argv: list[str] | None = None) -> int:
     relay_all = args.relay_all == "1" and "-riposte-" not in args.jail
     if relay_all or is_tailscale_address(args.ip, args.cidr):
         now = datetime.now(timezone.utc)
+        origin = bridge_origin(args.jail)
+        if args.mode == "unban":
+            # Retrait conditionnel en UNE operation (omega-serv 2.6.1+) : seulement si l'entree vient
+            # toujours de ce jail - jamais un ban pose entre-temps par le WAF, RIPOSTE ou une personne.
+            done = run_blocklist_command(args.servcli, "remove", args.ip, servconfig=args.servconfig, origin=origin)
+            if done is not None:
+                return 0
+            entries = read_blocklist(args.servcli, args.servconfig)
+            if should_remove(entries, args.ip, now, jail=args.jail):
+                run_blocklist_command(args.servcli, "remove", args.ip, servconfig=args.servconfig)
+            return 0
         entries = read_blocklist(args.servcli, args.servconfig)
-        if args.mode == "ban" and not should_add(entries, args.ip, args.bantime, now):
+        if not should_add(entries, args.ip, args.bantime, now):
             _warn(f"{args.ip} deja bannie plus fortement dans omega-serv : ban existant conserve")
             return 0
-        if args.mode == "unban" and not should_remove(entries, args.ip, now):
-            return 0
         run_blocklist_command(
-            args.servcli,
-            "add" if args.mode == "ban" else "remove",
-            args.ip,
+            args.servcli, "add", args.ip,
             servconfig=args.servconfig,
             reason=f"{BRIDGE_REASON_PREFIX}{args.jail}",
             bantime_seconds=args.bantime,
+            origin=origin,
         )
     return 0
 

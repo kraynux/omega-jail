@@ -294,10 +294,17 @@ def test_manual_or_permanent_ban_is_never_overwritten() -> None:
     assert should_add([_line("10.9.9.0/24", "auto", None, "permanent")], "10.9.9.9", 3600, _NOW) is False
 
 
-def test_shorter_auto_ban_or_own_entry_is_replaced() -> None:
+def test_shorter_auto_ban_or_shorter_own_entry_is_replaced() -> None:
     assert should_add([_line("1.2.3.4/32", "auto", 1, "auto")], "1.2.3.4", 12 * 3600, _NOW) is True
-    assert should_add([_line("1.2.3.4/32", "manual", 48, "omega-jail:omega-serv-scan")], "1.2.3.4", 3600, _NOW) is True
+    assert should_add([_line("1.2.3.4/32", "manual", 1, "omega-jail:omega-serv-scan")], "1.2.3.4", 12 * 3600, _NOW) is True
     assert should_add([], "1.2.3.4", 3600, _NOW) is True
+
+
+def test_longer_entry_from_another_bridge_jail_is_kept() -> None:
+    """2026-11-10 : un jail de 12 h remplacait le ban de 24 h d'un autre jail du pont, puis le levait au bout de
+    12 h alors que le ban fail2ban de 24 h courait encore."""
+    assert should_add([_line("1.2.3.4/32", "manual", 24, "omega-jail:omega-waf-blocklist-sync")],
+                      "1.2.3.4", 12 * 3600, _NOW) is False
     assert should_add(None, "1.2.3.4", 3600, _NOW) is True      # illisible : comportement d'avant
 
 

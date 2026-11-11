@@ -55,6 +55,7 @@ def render_jail(
     include_bridge_action: bool = True,
     ignoreip: tuple[str, ...] = (),
     keep_default_ignoreip: bool = False,
+    bridge_action: str = BRIDGE_ACTION_NAME,
 ) -> str:
     content = (
         "# Genere par Omega-Jail\n"
@@ -67,7 +68,7 @@ def render_jail(
         f"bantime = {jail.bantime}\n"
     ) + render_ignoreip(ignoreip, keep_default_ignoreip)
     if include_bridge_action:
-        content += f"action = %(action_)s\n          {BRIDGE_ACTION_NAME}\n"
+        content += f"action = %(action_)s\n          {bridge_action}\n"
     return content
 
 
@@ -95,6 +96,7 @@ def render_entry(
     include_bridge_action: bool = True,
     ignoreip: tuple[str, ...] = (),
     keep_default_ignoreip: bool = False,
+    bridge_action: str = BRIDGE_ACTION_NAME,
 ) -> RenderedJail | None:
     if status.status != "available" or status.logpath is None:
         return None
@@ -107,7 +109,7 @@ def render_entry(
         jail_filename=filename,
         jail_content=render_jail(
             jail, status.logpath, include_bridge_action=include_bridge_action,
-            ignoreip=ignoreip, keep_default_ignoreip=keep_default_ignoreip,
+            ignoreip=ignoreip, keep_default_ignoreip=keep_default_ignoreip, bridge_action=bridge_action,
         ),
         logpath=status.logpath,
     )

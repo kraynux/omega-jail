@@ -30,7 +30,8 @@ import sys
 from pathlib import Path
 
 from omega_jail.autodetect import find_fail2ban_base_dir
-from omega_jail.install import InstallConfig, InstallReport, apply, prepare
+from omega_jail.install import DEFAULT_BRIDGE_DIR, InstallConfig, InstallReport, apply, prepare
+from omega_jail.support import SUPPORT_COMMANDS, run_support
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR
 
 SERV_ROOT_FILENAME = ".serv-root"
@@ -91,7 +92,11 @@ def _default_reload() -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="omega-jail", description="Catalogue de jails fail2ban pour omega-serv/omega-waf")
+    parser = argparse.ArgumentParser(
+        prog="omega-jail", description="Catalogue de jails fail2ban pour omega-serv/omega-waf",
+        epilog="Contact et support : omega-jail contact | omega-jail declaration status|declare|withdraw | "
+               "omega-jail version [--check]",
+    )
     parser.add_argument(
         "--serv-root",
         type=Path,
@@ -108,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--jail-local-path", type=Path, default=None)
     parser.add_argument("--tailscale-cidr", default=DEFAULT_TAILSCALE_CIDR)
     parser.add_argument("--only", default=None, help="N'installer qu'un seul jail du catalogue (par nom)")
+    parser.add_argument("--bridge-dir", type=Path, default=None,
+                        help="Dossier systeme de la copie du pont (defaut : /usr/local/lib/omega-jail)")
     parser.add_argument("--force", action="store_true", help="Ecraser un jail.d existant portant le meme nom de fichier")
     parser.add_argument(
         "--update", action="store_true",
@@ -144,7 +151,18 @@ def _resolve_fail2ban_dirs(args: argparse.Namespace) -> tuple[Path, Path, Path] 
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments[:1] == ["synchro"]:
+        # Contrats d'interconnexion (2026-11-10) : jeton d'installation, sans omega-serv ni fail2ban.
+        from omega_jail.support import project_version
+        from omega_jail.synchro_token import run_synchro
+
+        root = _default_omega_jail_root()
+        return run_synchro(arguments, root, project_version(root))
+    if arguments and arguments[0] in SUPPORT_COMMANDS:
+        # Contact et support (2026-11-09) : commandes a part, sans omega-serv ni fail2ban.
+        return run_support(arguments, _default_omega_jail_root())
+    args = build_parser().parse_args(arguments)
     omega_jail_root = args.omega_jail_root or _default_omega_jail_root()
 
     serv_root = _resolve_serv_root(args, omega_jail_root)
@@ -179,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         update=args.update,
         only=args.only,
+        bridge_dir=args.bridge_dir or DEFAULT_BRIDGE_DIR,
     )
 
     try:
@@ -194,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(action.name)
             elif action.outcome == "skip_outdated":
                 print(f"{action.name} (mise a jour)")
-        if report.action_conf_outdated(action_d_dir):
+        if report.action_conf_outdated(action_d_dir, config.bridge_dir):
             print("omega-jail-tailscale-bridge (action du pont a mettre a jour)")
         return 0
 

@@ -56,6 +56,8 @@ Netzwerksperre für alle anderen nie scheitern.
 
 **Hinter einem lokalen Proxy (Tailscale Funnel, Reverse Proxy auf derselben Maschine).** Die Verbindungen kommen dann vom lokalen Host: Die Netzwerksperre erreicht den Besucher nie. Omega-Jail erkennt das (vertrauenswürdiger Proxy von omega-serv, der `127.0.0.1` oder `::1` abdeckt), und die Brücke reicht dann jede Sperre einer öffentlichen Adresse an die Blocklist von omega-serv weiter, die mit `451` antwortet — derselbe Weg wie beim Magnet-Skript. Die RIPOSTE-Jails werden nicht weitergereicht: RIPOSTE hat seine lokale Sperre bereits gesetzt.
 
+**Wo die Brücke läuft.** `--apply` installiert eine eigenständige Kopie der Brücke, die root gehört, in `/usr/local/lib/omega-jail/` (Option `--bridge-dir`), gestartet mit dem System-Python: fail2ban führt keinen Code mehr aus dem Ordner von Omega-Jail aus, und das Löschen dieses Ordners zerstört die Brücke nicht mehr. Jede omega-serv-Instanz hat ihre eigene Aktion (`omega-jail-tailscale-bridge-<service>`), die an **ihre** Blocklist weiterleitet. Die Brücke kennzeichnet ihre Sperren mit der Herkunft `omega-jail:<jail>` und hebt nur ihre eigenen auf, in einem einzigen Schritt (omega-serv 2.6.1 oder neuer; sonst bisheriges Verhalten).
+
 **Nie gesperrte Netze.** Nur externer Verkehr kann gesperrt werden: der lokale Host, Tailscale (`100.64.0.0/10`) und das lokale Netz nie. Jede erzeugte Jail erhält eine `ignoreip`-Zeile mit der **von omega-serv selbst gelieferten** Liste (`omega-serv waf never-auto-block`, Einstellung `options.waf.reputation.never_auto_block`) – nie eine fest eingetragene Kopie. Ein bereits in `[DEFAULT]` gesetztes `ignoreip` wird beibehalten und ergänzt, nie überschrieben. Die Tailscale-Brücke reicht nie die Sperre einer ausgenommenen Adresse weiter: Mit den Standardeinstellungen reicht sie also nichts mehr weiter (Ihre externen Besucher kommen mit ihrer echten öffentlichen Adresse). Außer hinter einem lokalen Proxy: siehe vorigen Absatz. Ist omega-serv nicht auffindbar oder zu alt, wird nur der lokale Host ausgenommen, mit einer Warnung im Bericht. Eine bestehende Installation wird nur mit `--apply --force` aktualisiert.
 
 ## Katalog
@@ -156,6 +158,21 @@ Jeder Lauf kann gefahrlos wiederholt werden: Eine bereits von einem
 früheren Lauf angelegte Jail (oder jede externe Jail, die dieselbe
 Protokolldatei bereits überwacht, egal unter welchem Namen) wird
 automatisch erkannt und übersprungen, nie dupliziert.
+
+## Kontakt und Support
+
+omega-jail hat keine Oberfläche: Die Funktion **Kontakt und Support** der anderen omega-Werkzeuge läuft über die Kommandozeile.
+
+```bash
+./omega-jail.sh contact                              # Kaffee (PayPal), E-Mail und Formular des Supports
+./omega-jail.sh declaration declare --pays FR        # zeigt die genaue Nachricht, nichts wird gesendet
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # mich nicht mehr melden
+./omega-jail.sh version --check                      # neueste veröffentlichte Version
+```
+
+Die Meldung ist freiwillig, standardmäßig deaktiviert und wird nur ein einziges Mal gesendet: Sie dient nur dazu, die Nutzer zu zählen und, wenn gewünscht, ihren Kontinent oder ihr Land (geschlossene Listen, nie Freitext). Gesendet werden ein zufällig gezogener Schlüssel, der Name der Software (`omega-jail`) und ihre Version; nie ein Name, ein Rechnername, eine Einstellung, ein Ziel oder ein Ergebnis. Die IP-Adresse wird in den Meldungen nicht gespeichert, durchläuft aber wie jeder Besuch die Sicherheitsprüfungen und das Protokoll des Empfangsservers. `version --check` liest nur die Liste der auf der Website veröffentlichten Versionen; nichts wird gesendet.
 
 ## Voraussetzungen
 

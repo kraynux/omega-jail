@@ -1,0 +1,33 @@
+OMEGA-JAIL 1.2.0 - Ce qui change pour vous
+==========================================
+
+Une version qui ajoute la fonction « Contact et support » des autres outils omega, en
+ligne de commande puisque omega-jail n'a pas d'interface. Le détail technique complet
+reste dans le CHANGELOG.
+
+
+CONTACT ET SUPPORT
+------------------
+- ./omega-jail.sh contact : payer un café (page PayPal du développeur), contacter le
+  support (mail et formulaire de contact du site), et comment se déclarer.
+- Aucun mail n'est envoyé par omega-jail, aucun formulaire n'est rempli ici.
+
+
+SE DÉCLARER UTILISATEUR (ANONYME), UNE SEULE FOIS
+-------------------------------------------------
+- ./omega-jail.sh declaration declare [--continent EU] [--pays FR] affiche le message
+  exact qui serait envoyé, sans rien envoyer ; ajoutez --yes pour l'envoyer.
+- Le message contient une clé tirée au hasard, « omega-jail », la version et, si vous
+  le voulez, un continent et un pays. Jamais de nom, de nom de machine ni de journal.
+- ./omega-jail.sh declaration withdraw --yes : votre entrée est supprimée à la
+  réception et la clé effacée de la machine.
+- ./omega-jail.sh declaration status : où vous en êtes.
+
+
+VERSION ET MISES À JOUR
+-----------------------
+- ./omega-jail.sh version : la version installée.
+- ./omega-jail.sh version --check : la compare à la dernière version publiée sur le
+  site. Rien n'est envoyé.
+- L'archive est désormais publiée dans download/ avec sa version et son sha.txt,
+  comme pour les autres outils omega.

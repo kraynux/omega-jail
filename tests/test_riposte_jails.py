@@ -75,7 +75,8 @@ def test_one_jail_per_duration_and_per_instance(tmp_path: Path) -> None:
     base = tmp_path / "fail2ban"
     config = InstallConfig(
         serv_root=main, omega_jail_root=tmp_path / "jail", jail_d_dir=base / "jail.d", filter_d_dir=base / "filter.d",
-        action_d_dir=base / "action.d", jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local",
+        action_d_dir=base / "action.d",
+        bridge_dir=Path(str(base / "action.d")).parent / "omega-jail-lib", jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local",
         only=None,
         instances=(ServInstance("omega-serv", main), ServInstance("omega-serv-blog", blog),
                    ServInstance("omega-serv-quiet", quiet)),
@@ -106,7 +107,8 @@ def test_only_selects_the_riposte_duration_for_every_instance(tmp_path: Path) ->
     base = tmp_path / "fail2ban"
     config = InstallConfig(
         serv_root=main, omega_jail_root=tmp_path / "jail", jail_d_dir=base / "jail.d", filter_d_dir=base / "filter.d",
-        action_d_dir=base / "action.d", jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local",
+        action_d_dir=base / "action.d",
+        bridge_dir=Path(str(base / "action.d")).parent / "omega-jail-lib", jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local",
         only="riposte-7d", instances=(ServInstance("omega-serv", main), ServInstance("omega-serv-blog", blog)),
     )
     names = sorted(a.name for a in prepare(config, catalog_path=REAL_CATALOG).plan)

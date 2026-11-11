@@ -52,6 +52,8 @@ Tailscale の範囲（既定は `100.64.0.0/10`）に入る場合、BAN は omeg
 
 **ローカルプロキシの背後（Tailscale Funnel、同じマシン上のリバースプロキシ）。** この場合、接続はローカルホストから届くため、ネットワーク BAN は訪問者に届きません。Omega-Jail はこれを検出し（`127.0.0.1` または `::1` を含む omega-serv の信頼できるプロキシ）、ブリッジは公開アドレスのすべての BAN を omega-serv の blocklist に引き継ぎ、そこが `451` を返します。magnet スクリプトと同じ経路です。RIPOSTE の jail は引き継ぎません。RIPOSTE がすでにローカル BAN を設定しているためです。
 
+**ブリッジの実行場所。** `--apply` は、root 所有の独立したブリッジのコピーを `/usr/local/lib/omega-jail/`（オプション `--bridge-dir`）にインストールし、システムの Python で実行します。fail2ban は Omega-Jail のフォルダー内のコードを実行しなくなり、そのフォルダーを削除してもブリッジは壊れなくなりました。omega-serv の各インスタンスは専用のアクション（`omega-jail-tailscale-bridge-<service>`）を持ち、**そのインスタンスの** blocklist に中継します。ブリッジは自分の BAN に起点 `omega-jail:<jail>` を付け、自分の BAN だけを 1 回の操作で解除します（omega-serv 2.6.1 以降。それ以前は従来どおり）。
+
 **決して BAN されないネットワーク。** BAN されうるのは外部の通信だけです。ローカルホスト、Tailscale（`100.64.0.0/10`）、ローカルネットワークは決して BAN されません。生成される各 jail には、**omega-serv 自身が提供する**リスト（`omega-serv waf never-auto-block`、設定 `options.waf.reputation.never_auto_block`）を含む `ignoreip` 行が付きます。ここに固定のコピーを書くことはありません。`[DEFAULT]` にすでに定義された `ignoreip` は残したうえで補完し、上書きしません。Tailscale ブリッジは除外対象アドレスの BAN を決して引き継ぎません。そのため既定の設定では、もう何も引き継ぎません（外部の訪問者は実際の公開アドレスで届きます）。ただし、ローカルプロキシの背後にある場合は前の段落を参照してください。omega-serv が見つからないか古すぎる場合は、ローカルホストだけを除外し、レポートに警告を出します。既存のインストールは `--apply --force` を指定したときだけ更新されます。
 
 ## カタログ
@@ -146,6 +148,21 @@ chmod +x install.sh
 何度実行しても安全です。以前の実行ですでに作られた jail（または、名前に
 かかわらず同じログファイルをすでに監視している外部の jail）は自動的に
 検出されてスキップされ、重複することはありません。
+
+## お問い合わせとサポート
+
+omega-jail には画面がないため、ほかの omega ツールの **お問い合わせとサポート** 機能はコマンドラインで利用します。
+
+```bash
+./omega-jail.sh contact                              # コーヒー（PayPal）、サポートのメールとフォーム
+./omega-jail.sh declaration declare --pays FR        # 送信内容をそのまま表示、何も送信しない
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # 登録を取り消す
+./omega-jail.sh version --check                      # 公開済みの最新バージョン
+```
+
+登録は任意で、既定では無効、送信は一度だけです。利用者の数と、希望すればその大陸または国（選択式のリストのみ、自由入力なし）を数えるためだけに使われます。送信されるのは、ランダムに生成したキー、ソフトウェア名（`omega-jail`）とそのバージョンだけで、名前、マシン名、設定、対象、結果は決して送信されません。IP アドレスは登録データには保存されませんが、通常のアクセスと同様に、受信サーバーのセキュリティチェックとログを通過します。 `version --check` はサイトで公開されているバージョンの一覧を読むだけで、何も送信しません。
 
 ## 必要条件
 

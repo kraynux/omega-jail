@@ -55,6 +55,8 @@ blokir jaringan biasa gagal bagi yang lain.
 
 **Di balik proxy lokal (Tailscale Funnel, reverse proxy di mesin yang sama).** Koneksi lalu datang dari host lokal: blokir jaringan tidak pernah mengenai pengunjung. Omega-Jail mendeteksinya (proxy tepercaya omega-serv yang mencakup `127.0.0.1` atau `::1`) dan jembatan lalu meneruskan setiap blokir alamat publik ke blocklist omega-serv, yang menjawab `451` — jalur yang sama dengan skrip magnet. Jail RIPOSTE tidak diteruskan: RIPOSTE sudah memasang blokir lokalnya.
 
+**Tempat jembatan berjalan.** `--apply` memasang salinan mandiri jembatan, milik root, di `/usr/local/lib/omega-jail/` (opsi `--bridge-dir`), dijalankan dengan Python sistem: fail2ban tidak lagi menjalankan kode yang berada di folder Omega-Jail, dan menghapus folder itu tidak lagi merusak jembatan. Setiap instans omega-serv punya aksi sendiri (`omega-jail-tailscale-bridge-<service>`), yang meneruskan ke blocklist **miliknya**. Jembatan menandai blokirnya dengan asal `omega-jail:<jail>` dan hanya mencabut miliknya sendiri, dalam satu operasi (omega-serv 2.6.1 atau lebih baru; jika tidak, perilaku sebelumnya).
+
 **Jaringan yang tidak pernah diblokir.** Hanya lalu lintas eksternal yang bisa diblokir: host lokal, Tailscale (`100.64.0.0/10`), dan jaringan lokal tidak pernah. Setiap jail yang dibuat menerima baris `ignoreip` dengan daftar **yang diberikan oleh omega-serv sendiri** (`omega-serv waf never-auto-block`, pengaturan `options.waf.reputation.never_auto_block`) — tidak pernah salinan tetap di sini. `ignoreip` yang sudah ada di `[DEFAULT]` dipertahankan dan dilengkapi, tidak pernah ditimpa. Jembatan Tailscale tidak pernah meneruskan blokir untuk alamat yang dikecualikan: dengan pengaturan bawaan, jembatan ini tidak meneruskan apa pun lagi (pengunjung eksternal Anda datang dengan alamat publik aslinya). Kecuali di balik proxy lokal: lihat paragraf sebelumnya. Jika omega-serv tidak ditemukan atau terlalu lama, hanya host lokal yang dikecualikan, dengan peringatan di laporan. Instalasi yang sudah ada hanya diperbarui dengan `--apply --force`.
 
 ## Katalog
@@ -153,6 +155,21 @@ Setiap eksekusi aman diulang: jail yang sudah dibuat oleh eksekusi
 sebelumnya (atau jail eksternal apa pun yang sudah memantau berkas log
 yang sama, apa pun namanya) terdeteksi otomatis dan dilewati, tidak
 pernah digandakan.
+
+## Kontak dan dukungan
+
+omega-jail tidak memiliki antarmuka: fungsi **Kontak dan dukungan** dari alat omega lainnya tersedia melalui baris perintah.
+
+```bash
+./omega-jail.sh contact                              # kopi (PayPal), email dan formulir dukungan
+./omega-jail.sh declaration declare --pays FR        # menampilkan pesan persisnya, tidak ada yang dikirim
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # jangan daftarkan saya lagi
+./omega-jail.sh version --check                      # versi terbaru yang dipublikasikan
+```
+
+Pendaftaran bersifat sukarela, nonaktif secara bawaan, dan dikirim hanya sekali: hanya digunakan untuk menghitung pengguna dan, jika Anda mau, benua atau negara mereka (daftar tertutup, tidak pernah teks bebas). Yang dikirim adalah kunci yang diambil secara acak, nama perangkat lunak (`omega-jail`), dan versinya; tidak pernah nama, nama mesin, pengaturan, target, maupun hasil. Alamat IP tidak disimpan dalam pendaftaran, tetapi, seperti setiap kunjungan, melewati pemeriksaan keamanan dan log server penerima. `version --check` hanya membaca daftar versi yang dipublikasikan di situs; tidak ada yang dikirim.
 
 ## Persyaratan
 

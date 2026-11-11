@@ -52,6 +52,8 @@ không bao giờ làm hỏng lệnh cấm mạng thông thường cho mọi ngư
 
 **Phía sau một proxy cục bộ (Tailscale Funnel, reverse proxy trên cùng máy).** Khi đó các kết nối đến từ máy cục bộ: lệnh cấm mạng không bao giờ chạm tới khách truy cập. Omega-Jail phát hiện điều này (proxy tin cậy của omega-serv bao gồm `127.0.0.1` hoặc `::1`) và cầu nối khi đó chuyển mọi lệnh cấm địa chỉ công khai sang blocklist của omega-serv, vốn trả về `451` — cùng đường đi với script magnet. Các jail RIPOSTE không được chuyển: RIPOSTE đã đặt lệnh cấm cục bộ của mình.
 
+**Cầu nối chạy ở đâu.** `--apply` cài một bản sao độc lập của cầu nối, thuộc sở hữu của root, vào `/usr/local/lib/omega-jail/` (tùy chọn `--bridge-dir`), chạy bằng Python của hệ thống: fail2ban không còn chạy mã nằm trong thư mục của Omega-Jail, và xóa thư mục đó không còn làm hỏng cầu nối. Mỗi phiên bản omega-serv có hành động riêng (`omega-jail-tailscale-bridge-<service>`), chuyển tiếp tới blocklist **của chính nó**. Cầu nối đánh dấu các lệnh cấm của mình bằng nguồn gốc `omega-jail:<jail>` và chỉ gỡ lệnh cấm của chính nó, trong một thao tác (omega-serv 2.6.1 trở lên; nếu không, giữ hành vi cũ).
+
 **Các mạng không bao giờ bị cấm.** Chỉ lưu lượng bên ngoài mới có thể bị cấm: máy cục bộ, Tailscale (`100.64.0.0/10`) và mạng nội bộ thì không bao giờ. Mỗi jail được tạo nhận một dòng `ignoreip` với danh sách **do chính omega-serv cung cấp** (`omega-serv waf never-auto-block`, thiết lập `options.waf.reputation.never_auto_block`) — không bao giờ là bản chép cứng ở đây. Một `ignoreip` đã có trong `[DEFAULT]` được giữ lại và bổ sung, không bao giờ bị ghi đè. Cầu nối Tailscale không bao giờ chuyển lệnh cấm của một địa chỉ được miễn: với thiết lập mặc định, nó không còn chuyển gì nữa (khách bên ngoài của bạn đến bằng địa chỉ công khai thật). Trừ khi ở sau một proxy cục bộ: xem đoạn trước. Nếu không tìm thấy omega-serv hoặc phiên bản quá cũ, chỉ máy cục bộ được miễn, kèm cảnh báo trong báo cáo. Một bản cài đặt sẵn có chỉ được cập nhật với `--apply --force`.
 
 ## Danh mục
@@ -146,6 +148,21 @@ Tùy chọn hữu ích:
 Mỗi lần chạy đều có thể lặp lại an toàn: một jail đã được lần chạy
 trước tạo (hoặc bất kỳ jail bên ngoài nào đã theo dõi cùng tệp nhật ký,
 dù tên gì) được tự động phát hiện và bỏ qua, không bao giờ nhân đôi.
+
+## Liên hệ và hỗ trợ
+
+omega-jail không có giao diện: chức năng **Liên hệ và hỗ trợ** của các công cụ omega khác được thực hiện qua dòng lệnh.
+
+```bash
+./omega-jail.sh contact                              # cà phê (PayPal), email và biểu mẫu hỗ trợ
+./omega-jail.sh declaration declare --pays FR        # hiển thị thông điệp chính xác, không gửi gì
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # không khai báo tôi nữa
+./omega-jail.sh version --check                      # phiên bản phát hành mới nhất
+```
+
+Việc khai báo là tự nguyện, tắt theo mặc định và chỉ gửi một lần: nó chỉ dùng để đếm số người dùng và, nếu bạn muốn, châu lục hoặc quốc gia của họ (danh sách đóng, không bao giờ là văn bản tự do). Nó gửi một khóa được tạo ngẫu nhiên, tên phần mềm (`omega-jail`) và phiên bản của nó; không bao giờ gửi tên, tên máy, thiết lập, mục tiêu hay kết quả. Địa chỉ IP không được lưu trong các khai báo, nhưng, như mọi lượt truy cập, nó đi qua các kiểm tra bảo mật và nhật ký của máy chủ nhận. `version --check` chỉ đọc danh sách các phiên bản đã phát hành trên trang web; không gửi gì.
 
 ## Yêu cầu
 

@@ -114,7 +114,7 @@ def _install(tmp_path: Path, servcli_body: str | None, jail_local: str | None = 
     catalog.write_text(_CATALOG)
     config = InstallConfig(
         serv_root=serv_root, omega_jail_root=tmp_path / "oj", jail_d_dir=base / "jail.d",
-        filter_d_dir=base / "filter.d", action_d_dir=base / "action.d",
+        filter_d_dir=base / "filter.d", action_d_dir=base / "action.d", bridge_dir=base / "omega-jail-lib",
         jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local",
     )
     report = apply(prepare(config, catalog_path=catalog), config)
@@ -208,7 +208,7 @@ def test_reinstall_regenerates_own_jails_with_force(tmp_path: Path) -> None:
     def _config(force: bool) -> InstallConfig:
         return InstallConfig(
             serv_root=serv_root, omega_jail_root=tmp_path / "oj", jail_d_dir=base / "jail.d",
-            filter_d_dir=base / "filter.d", action_d_dir=base / "action.d",
+            filter_d_dir=base / "filter.d", action_d_dir=base / "action.d", bridge_dir=base / "omega-jail-lib",
             jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local", force=force,
         )
 
@@ -234,7 +234,7 @@ def test_external_jail_on_same_log_is_still_a_duplicate(tmp_path: Path) -> None:
     catalog.write_text(_CATALOG)
     config = InstallConfig(
         serv_root=serv_root, omega_jail_root=tmp_path / "oj", jail_d_dir=base / "jail.d",
-        filter_d_dir=base / "filter.d", action_d_dir=base / "action.d",
+        filter_d_dir=base / "filter.d", action_d_dir=base / "action.d", bridge_dir=base / "omega-jail-lib",
         jail_conf_path=base / "jail.conf", jail_local_path=base / "jail.local", force=True,
     )
     report = prepare(config, catalog_path=catalog)

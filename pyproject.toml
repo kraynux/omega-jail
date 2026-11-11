@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omega-jail"
-version = "1.1.1"
+version = "1.2.1"
 description = "Catalogue preconfigure de jails fail2ban pour omega-serv et omega-waf"
 readme = "README.md"
 requires-python = ">=3.10"

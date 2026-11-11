@@ -26,6 +26,13 @@ if [ -z "${LC_ALL:-}" ] && [ -z "${LANG:-}" ] || [ "${LANG:-}" = "C" ] || [ "${L
     fi
 fi
 
+# Contrats d'interconnexion (2026-11-10) : `synchro jeton` écrit le jeton d'installation sous VOTRE
+# compte et sort du JSON : ni bannière, ni élévation sudo.
+if [ "${1:-}" = "synchro" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+    exec "$SCRIPT_DIR/.venv/bin/omega-jail" "$@"
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -57,8 +64,12 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 if ! "$VENV_DIR/bin/python" -c "import omega_jail" 2>/dev/null; then
-    echo "⚠️  Le venv semble incomplet, reinstallation..."
-    "$VENV_DIR/bin/pip" install -q -e "$SCRIPT_DIR"
+    # Jamais de `pip install` ici (2026-11-10) : ce script tourne en root, et pip ecrirait en root dans le
+    # dossier de l'utilisateur (fichiers que l'utilisateur ne pourrait plus modifier, code root non protege).
+    echo -e "${RED}❌ Environnement virtuel incomplet : $VENV_DIR${NC}"
+    echo ""
+    echo "Relancez sans sudo : $SCRIPT_DIR/install.sh"
+    exit 1
 fi
 
 # shellcheck disable=SC1091

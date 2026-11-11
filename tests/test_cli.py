@@ -34,6 +34,7 @@ def _common_args(tmp_path: Path) -> list[str]:
         "--jail-d-dir", str(tmp_path / "fail2ban" / "jail.d"),
         "--filter-d-dir", str(tmp_path / "fail2ban" / "filter.d"),
         "--action-d-dir", str(tmp_path / "fail2ban" / "action.d"),
+        "--bridge-dir", str(tmp_path / "fail2ban" / "omega-jail-lib"),
         "--jail-conf-path", str(tmp_path / "fail2ban" / "jail.conf"),
         "--jail-local-path", str(tmp_path / "fail2ban" / "jail.local"),
     ]
@@ -197,11 +198,15 @@ def test_pending_is_empty_when_everything_is_installed(tmp_path: Path, capsys: p
         serv_root=Path(args[1]), omega_jail_root=cli_module._default_omega_jail_root(),
         jail_d_dir=jail_d, filter_d_dir=tmp_path / "fail2ban" / "filter.d",
         action_d_dir=tmp_path / "fail2ban" / "action.d",
+        bridge_dir=Path(str(tmp_path / "fail2ban" / "action.d")).parent / "omega-jail-lib",
         jail_conf_path=tmp_path / "fail2ban" / "jail.conf", jail_local_path=tmp_path / "fail2ban" / "jail.local",
     )
     report = prepare(config, catalog_path=Path(args[3]))
     (tmp_path / "fail2ban" / "action.d").mkdir(parents=True)
     (tmp_path / "fail2ban" / "action.d" / ACTION_CONF_FILENAME).write_text(report.action_conf_content, encoding="utf-8")
+    (tmp_path / "fail2ban" / "omega-jail-lib").mkdir(parents=True)
+    (tmp_path / "fail2ban" / "omega-jail-lib" / "omega-jail-tailscale-bridge.py").write_text(
+        report.bridge_script_content, encoding="utf-8")
     # jail installe mais different du catalogue (ancienne version) : a mettre a jour
     exit_code = main([*_common_args(tmp_path), "--pending"])
     assert exit_code == 0

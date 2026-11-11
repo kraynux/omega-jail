@@ -1,0 +1,23 @@
+{
+  "format": "omega-jeton",
+  "schema_version": 1,
+  "tool": "omega-jail",
+  "version": "1.2.0",
+  "installation_id": "f6ad9ed6aa9d1402081a339041e4151b",
+  "machine": "d18aee1f308bc0c6",
+  "root": "/home/kraynux/DEV/JAIL/omega-jail",
+  "owner": "kraynux",
+  "installed_at": "2026-11-10T17:02:41Z",
+  "updated_at": "2026-11-10T17:02:41Z",
+  "contracts": {},
+  "offers": [
+    "jails",
+    "bridge"
+  ],
+  "wants": [
+    "waf-logs",
+    "riposte-decisions",
+    "blocklist",
+    "protected-list"
+  ]
+}

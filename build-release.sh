@@ -39,7 +39,7 @@ rsync -a \
     --exclude='*~' --exclude='*.bak' --exclude='*.swp' \
     --exclude='.coverage' --exclude='htmlcov/' \
     --exclude='build-release.sh' --exclude='omega-jail.tar.gz' --exclude='dist/' \
-    --exclude='.serv-root' \
+    --exclude='.serv-root' --exclude='var/' \
     "$PROJECT_ROOT/" "$DEST/"
 
 info "Archivage..."

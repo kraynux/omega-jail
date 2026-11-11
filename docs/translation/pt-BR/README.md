@@ -54,6 +54,8 @@ todos os outros.
 
 **Atrás de um proxy local (Tailscale Funnel, proxy reverso na mesma máquina).** As conexões chegam então do host local: o ban de rede nunca atinge o visitante. O Omega-Jail detecta isso (proxy confiável do omega-serv cobrindo `127.0.0.1` ou `::1`) e a ponte repassa então todo ban de um endereço público para a blocklist do omega-serv, que responde `451` — o mesmo circuito do script magnet. Os jails do RIPOSTE não são repassados: o RIPOSTE já aplicou seu ban local.
 
+**Onde a ponte roda.** `--apply` instala uma cópia autônoma da ponte, pertencente ao root, em `/usr/local/lib/omega-jail/` (opção `--bridge-dir`), executada com o Python do sistema: o fail2ban não executa mais código situado na pasta do Omega-Jail, e apagar essa pasta não quebra mais a ponte. Cada instância do omega-serv tem sua própria ação (`omega-jail-tailscale-bridge-<service>`), que repassa para **a sua** blocklist. A ponte marca seus banimentos com a origem `omega-jail:<jail>` e só remove os seus, em uma única operação (omega-serv 2.6.1 ou mais recente; senão, comportamento anterior).
+
 **Redes nunca banidas.** Só o tráfego externo pode ser banido: o host local, o Tailscale (`100.64.0.0/10`) e a rede local nunca são. Cada jail gerada recebe uma linha `ignoreip` com a lista **fornecida pelo próprio omega-serv** (`omega-serv waf never-auto-block`, configuração `options.waf.reputation.never_auto_block`) — nunca uma cópia fixa aqui. Um `ignoreip` já definido em `[DEFAULT]` é mantido e completado, nunca sobrescrito. A ponte Tailscale nunca repassa o ban de um endereço isento: com as configurações padrão, ela não repassa mais nada (seus visitantes externos chegam com o endereço público real). Exceto atrás de um proxy local: veja o parágrafo anterior. Se o omega-serv não for encontrado ou for antigo demais, só o host local fica isento, com um aviso no relatório. Uma instalação existente só é atualizada com `--apply --force`.
 
 ## Catálogo
@@ -154,6 +156,21 @@ Cada execução pode ser repetida com segurança: uma jail já criada por
 uma execução anterior (ou qualquer jail externa que já monitore o mesmo
 arquivo de log, com qualquer nome) é detectada automaticamente e
 ignorada, nunca duplicada.
+
+## Contato e suporte
+
+O omega-jail não tem interface: a função **Contato e suporte** das outras ferramentas omega passa pela linha de comando.
+
+```bash
+./omega-jail.sh contact                              # café (PayPal), e-mail e formulário do suporte
+./omega-jail.sh declaration declare --pays FR        # mostra a mensagem exata, nada é enviado
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # não me declarar mais
+./omega-jail.sh version --check                      # última versão publicada
+```
+
+A declaração é voluntária, desativada por padrão e enviada uma única vez: serve apenas para contar os usuários e, se desejado, seu continente ou país (listas fechadas, nunca texto livre). Ela envia uma chave sorteada ao acaso, o nome do software (`omega-jail`) e sua versão; nunca um nome, um nome de máquina, uma configuração, um alvo ou um resultado. O endereço IP não é registrado nas declarações, mas, como em qualquer visita, passa pelos controles de segurança e pelo registro do servidor de recepção. `version --check` apenas lê a lista de versões publicadas no site; nada é enviado.
 
 ## Requisitos
 

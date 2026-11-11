@@ -52,6 +52,8 @@ jail에는 브리지가 들어 있습니다. 차단된 IP가 Tailscale 범위(�
 
 **로컬 프록시 뒤(Tailscale Funnel, 같은 머신의 리버스 프록시).** 이때 연결은 로컬 호스트에서 오므로 네트워크 차단이 방문자에게 닿지 않습니다. Omega-Jail이 이를 감지하면(`127.0.0.1` 또는 `::1`을 포함하는 omega-serv의 신뢰 프록시) 브리지가 공인 주소의 모든 차단을 omega-serv의 blocklist로 전달하고, omega-serv가 `451`로 응답합니다. magnet 스크립트와 같은 경로입니다. RIPOSTE jail은 전달하지 않습니다. RIPOSTE가 이미 로컬 차단을 걸었기 때문입니다.
 
+**브리지가 실행되는 곳.** `--apply`는 root 소유의 독립된 브리지 사본을 `/usr/local/lib/omega-jail/`(옵션 `--bridge-dir`)에 설치하고 시스템 Python으로 실행합니다. fail2ban은 더 이상 Omega-Jail 폴더에 있는 코드를 실행하지 않으며, 그 폴더를 지워도 브리지가 망가지지 않습니다. omega-serv 인스턴스마다 자체 액션(`omega-jail-tailscale-bridge-<service>`)이 있어 **자기** blocklist로 전달합니다. 브리지는 자신의 차단에 출처 `omega-jail:<jail>`를 표시하고 자신의 차단만 한 번의 작업으로 해제합니다(omega-serv 2.6.1 이상, 그 외에는 이전 동작).
+
 **절대 차단되지 않는 네트워크.** 외부 트래픽만 차단될 수 있습니다. 로컬 호스트, Tailscale(`100.64.0.0/10`), 로컬 네트워크는 절대 차단되지 않습니다. 생성되는 각 jail에는 **omega-serv 자신이 제공하는** 목록(`omega-serv waf never-auto-block`, 설정 `options.waf.reputation.never_auto_block`)이 담긴 `ignoreip` 줄이 붙습니다. 여기에 고정된 사본을 두지 않습니다. `[DEFAULT]`에 이미 정의된 `ignoreip`는 유지하고 보완할 뿐 절대 덮어쓰지 않습니다. Tailscale 브리지는 예외 대상 주소의 차단을 절대 전달하지 않으므로, 기본 설정에서는 더 이상 아무것도 전달하지 않습니다(외부 방문자는 실제 공인 주소로 들어옵니다). 단, 로컬 프록시 뒤에 있는 경우는 앞 단락을 참고하세요. omega-serv를 찾을 수 없거나 너무 오래된 경우에는 로컬 호스트만 예외로 하고, 보고서에 경고를 남깁니다. 기존 설치는 `--apply --force`로만 갱신됩니다.
 
 ## 카탈로그
@@ -139,6 +141,21 @@ chmod +x install.sh
 몇 번을 실행해도 안전합니다. 이전 실행에서 이미 만든 jail(또는 이름과 관계없이
 같은 로그 파일을 이미 감시하는 외부 jail)은 자동으로 감지되어 건너뛰며, 중복되지
 않습니다.
+
+## 문의 및 지원
+
+omega-jail에는 화면이 없으므로, 다른 omega 도구의 **문의 및 지원** 기능은 명령줄로 사용합니다.
+
+```bash
+./omega-jail.sh contact                              # 커피(PayPal), 지원 이메일과 양식
+./omega-jail.sh declaration declare --pays FR        # 보낼 메시지를 그대로 표시, 아무것도 보내지 않음
+./omega-jail.sh declaration declare --pays FR --yes
+./omega-jail.sh declaration status
+./omega-jail.sh declaration withdraw --yes           # 등록 취소
+./omega-jail.sh version --check                      # 최신 게시 버전
+```
+
+등록은 자발적이며 기본적으로 꺼져 있고 한 번만 전송됩니다. 사용자 수와, 원하면 사용자의 대륙 또는 국가(닫힌 목록, 자유 입력 없음)를 세는 데에만 쓰입니다. 무작위로 생성한 키, 소프트웨어 이름(`omega-jail`)과 버전만 보내며, 이름, 컴퓨터 이름, 설정, 대상, 결과는 절대 보내지 않습니다. IP 주소는 등록 정보에 저장되지 않지만, 모든 방문과 마찬가지로 수신 서버의 보안 검사와 로그를 거칩니다. `version --check`는 사이트에 게시된 버전 목록만 읽으며, 아무것도 보내지 않습니다.
 
 ## 요구 사항
 

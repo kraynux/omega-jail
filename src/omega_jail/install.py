@@ -5,7 +5,9 @@ rester testable sans toucher a un vrai systeme de fichiers racine ni a
 un vrai fail2ban (tous les repertoires sont des parametres)."""
 from __future__ import annotations
 
+import inspect
 import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -17,10 +19,42 @@ from omega_jail.duplicates import CatalogEntryStatus, check_catalog_against_exis
 from omega_jail.exemptions import ExemptNetworks, read_exempt_networks
 from omega_jail.existing_jails import default_ignoreip_defined, existing_logpaths
 from omega_jail.instances import ServInstance, detect_instances
-from omega_jail.render import RenderedJail, filter_name, render_entry
+from omega_jail.render import BRIDGE_ACTION_NAME, RenderedJail, filter_name, render_entry
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR, find_servcli, render_action_conf
 
 ACTION_CONF_FILENAME = "omega-jail-tailscale-bridge.conf"
+BRIDGE_SCRIPT_NAME = "omega-jail-tailscale-bridge.py"
+DEFAULT_BRIDGE_DIR = Path("/usr/local/lib/omega-jail")
+"""Copie systeme du pont (2026-11-10) : fail2ban (root) l'executait depuis le .venv d'omega-jail, un dossier
+modifiable par l'utilisateur (execution root d'un code non protege), et supprimer omega-jail cassait le pont
+sans le dire. La copie, autonome (bibliotheque standard seulement), appartient a root."""
+
+
+def system_python() -> str:
+    """Python du systeme (jamais celui d'un .venv) pour lancer la copie du pont."""
+    if Path("/usr/bin/python3").exists():
+        return "/usr/bin/python3"
+    return shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin") or "python3"
+
+
+def render_bridge_script() -> str:
+    """Source autonome du pont : tailscale_bridge.py, avec is_exempt() recopiee a la place de son import."""
+    from omega_jail import exemptions, tailscale_bridge
+
+    source = inspect.getsource(tailscale_bridge)
+    inlined = inspect.getsource(exemptions.is_exempt)
+    marker = "from omega_jail.exemptions import is_exempt\n"
+    assert marker in source
+    header = ("#!/usr/bin/env python3\n# Copie generee par omega-jail --apply : NE PAS MODIFIER (regeneree a chaque --apply).\n"
+              "# Lancee par fail2ban (actions omega-jail-tailscale-bridge*.conf).\n")
+    return header + source.replace(marker, "\n" + inlined + "\n")
+
+
+def bridge_action_name(instance: ServInstance | None) -> str:
+    """Action du pont d'une instance : la principale garde le nom historique, les autres
+    `omega-jail-tailscale-bridge-<service>` (2026-11-10 : une seule action pour toute la machine faisait relayer
+    les jails RIPOSTE de l'instance B vers la blocklist de l'instance A)."""
+    return BRIDGE_ACTION_NAME if instance is None else f"{BRIDGE_ACTION_NAME}-{instance.service_name}"
 
 PlanOutcome = Literal[
     "create", "overwrite_forced", "update", "skip_unavailable", "skip_duplicate", "skip_collision", "skip_outdated",
@@ -64,6 +98,8 @@ class InstallConfig:
     (2026-11-02 : une mise a jour ne touchait jamais un jail installe - le correctif des jails 404/401
     restait sans effet)."""
     only: str | None = None
+    bridge_dir: Path = DEFAULT_BRIDGE_DIR
+    """Ou installer la copie systeme du pont (voir DEFAULT_BRIDGE_DIR)."""
     instances: tuple[ServInstance, ...] | None = None
     """Instances omega-serv pour les jails `per_instance` (RIPOSTE) ; None = detection reelle
     (instances.py : unites systemd + registre d'omega-serv, `serv_root` compris)."""
@@ -78,12 +114,19 @@ class InstallReport:
     keep_default_ignoreip: bool = False
     relay_all: bool = False
     """omega-serv derriere un proxy local : le pont relaie tout ban d'adresse publique en 451 (hors RIPOSTE)."""
+    extra_actions: tuple[tuple[str, str], ...] = ()
+    """(nom de fichier, contenu) des actions du pont des AUTRES instances (une par instance)."""
+    bridge_script_content: str = ""
 
-    def action_conf_outdated(self, action_d_dir: Path) -> bool:
-        """L'action du pont installee differe de celle a installer (ex. relais active par cette version)."""
-        current = action_d_dir / ACTION_CONF_FILENAME
+    def action_conf_outdated(self, action_d_dir: Path, bridge_dir: Path | None = None) -> bool:
+        """L'action du pont installee (ou celle d'une instance, ou la copie systeme du pont) differe de celle a
+        installer (ex. relais active par cette version)."""
+        wanted = [(action_d_dir / ACTION_CONF_FILENAME, self.action_conf_content)]
+        wanted += [(action_d_dir / name, content) for name, content in self.extra_actions]
+        if bridge_dir is not None and self.bridge_script_content:
+            wanted.append((bridge_dir / BRIDGE_SCRIPT_NAME, self.bridge_script_content))
         try:
-            return current.read_text(encoding="utf-8") != self.action_conf_content
+            return any(path.read_text(encoding="utf-8") != content for path, content in wanted)
         except OSError:
             return True
 
@@ -104,6 +147,7 @@ def build_plan(
     keep_default_ignoreip: bool = False,
     filter_d_dir: Path | None = None,
     update: bool = False,
+    bridge_action: str = BRIDGE_ACTION_NAME,
 ) -> list[PlannedAction]:
     plan: list[PlannedAction] = []
     for status in statuses:
@@ -123,6 +167,7 @@ def build_plan(
 
         rendered = render_entry(
             status, use_json_logs=use_json_logs, ignoreip=ignoreip, keep_default_ignoreip=keep_default_ignoreip,
+            bridge_action=bridge_action,
         )
         assert rendered is not None  # status == "available" => render_entry ne retourne jamais None
         target = jail_d_dir / rendered.jail_filename
@@ -143,6 +188,9 @@ def build_plan(
                     name=status.jail.name,
                     outcome="skip_collision",
                     detail=f"{target} existe deja (utiliser --force pour ecraser)",
+                    # logpath garde (2026-11-10) : un journal supprime depuis l'installation est recree par
+                    # --apply, sinon fail2ban entier refuse de redemarrer.
+                    logpath=rendered.logpath,
                 )
             )
             continue
@@ -207,9 +255,26 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
         ignoreip=exemptions.networks, keep_default_ignoreip=keep_default,
         filter_d_dir=config.filter_d_dir, update=config.update,
     )
+    bridge_cli = f"{system_python()} {config.bridge_dir / BRIDGE_SCRIPT_NAME}"
+    extra_actions: list[tuple[str, str]] = []
     if per_instance:
         instances = config.instances if config.instances is not None else tuple(detect_instances(config.serv_root))
+        main_root = _real(config.serv_root)
         for instance in instances:
+            own = None if _real(instance.root) == main_root else instance
+            action_name = bridge_action_name(own)
+            instance_exemptions = exemptions
+            if own is not None:
+                instance_servcli = find_servcli(instance.root)
+                instance_exemptions = read_exempt_networks(instance_servcli, instance.root / config.config_rel_path)
+                extra_actions.append((f"{action_name}.conf", render_action_conf(
+                    bridge_cli=bridge_cli,
+                    servcli=str(instance_servcli) if instance_servcli else "",
+                    servconfig="",
+                    tailscale_cidr=config.tailscale_cidr,
+                    exempt=",".join(instance_exemptions.networks),
+                    relay_all=detect(instance.root, config.config_rel_path).behind_local_proxy,
+                )))
             instance_catalog = Catalog(jails=[
                 replace(jail, name=f"{instance.service_name}-{jail.name}", per_instance=False) for jail in per_instance
             ])
@@ -222,10 +287,9 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
             )
             plan += build_plan(
                 instance_statuses, use_json_logs=False, jail_d_dir=config.jail_d_dir, force=config.force,
-                ignoreip=exemptions.networks, keep_default_ignoreip=keep_default,
-                filter_d_dir=config.filter_d_dir, update=config.update,
+                ignoreip=instance_exemptions.networks, keep_default_ignoreip=keep_default,
+                filter_d_dir=config.filter_d_dir, update=config.update, bridge_action=action_name,
             )
-    bridge_cli = str(config.omega_jail_root / ".venv" / "bin" / "omega-jail-tailscale-bridge")
     action_conf_content = render_action_conf(
         bridge_cli=bridge_cli,
         servcli=str(servcli) if servcli else "",
@@ -236,8 +300,16 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
     )
     return InstallReport(
         plan=plan, action_conf_content=action_conf_content, exemptions=exemptions, keep_default_ignoreip=keep_default,
-        relay_all=detected.behind_local_proxy,
+        relay_all=detected.behind_local_proxy, extra_actions=tuple(extra_actions),
+        bridge_script_content=render_bridge_script(),
     )
+
+
+def _real(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path
 
 
 def _keep_previous(path: Path) -> None:
@@ -265,12 +337,63 @@ def _share_with_serv(logpath: Path) -> None:
         pass
 
 
+OMEGA_FILE_PREFIX = "omega-"
+"""Fichiers d'omega-jail dans fail2ban : ceux que verifie omega-connect (`{jail,filter,action}.d/omega-*`)."""
+FAIL2BAN_FILE_MODE = 0o644
+BRIDGE_MODE = 0o755
+
+
+def _set_rights(path: Path, mode: int) -> None:
+    """root:root et `mode`, sans jamais suivre un lien (O_NOFOLLOW : un lien est laisse tel quel). Proprietaire
+    change seulement en root (les tests tournent sous un compte ordinaire). Jamais un arret."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        return
+    try:
+        if os.geteuid() == 0:
+            os.fchown(descriptor, 0, 0)
+        os.fchmod(descriptor, mode)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def enforce_rights(config: InstallConfig) -> None:
+    """Remet les droits attendus sur tout ce qu'omega-jail pose (2026-11-10, lot E de l'etape 3 d'omega-connect) :
+    `--apply --update` reecrivait le contenu mais gardait les droits et le proprietaire d'un fichier existant ;
+    un fichier passe en 0666 ou repris par un autre compte restait tel quel. Fichiers `omega-*` de jail.d,
+    filter.d et action.d : root:root 0644 ; dossier et script du pont : root:root 0755."""
+    for directory in (config.jail_d_dir, config.filter_d_dir, config.action_d_dir):
+        try:
+            entries = sorted(directory.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name.startswith(OMEGA_FILE_PREFIX) and entry.is_file() and not entry.is_symlink():
+                _set_rights(entry, FAIL2BAN_FILE_MODE)
+    script = config.bridge_dir / BRIDGE_SCRIPT_NAME
+    if config.bridge_dir.is_dir() and not config.bridge_dir.is_symlink():
+        _set_rights(config.bridge_dir, BRIDGE_MODE)
+    if script.is_file() and not script.is_symlink():
+        _set_rights(script, BRIDGE_MODE)
+
+
 def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[], None] | None = None) -> InstallReport:
     config.filter_d_dir.mkdir(parents=True, exist_ok=True)
     config.jail_d_dir.mkdir(parents=True, exist_ok=True)
     config.action_d_dir.mkdir(parents=True, exist_ok=True)
 
+    if report.bridge_script_content:
+        config.bridge_dir.mkdir(parents=True, exist_ok=True)
+        config.bridge_dir.chmod(0o755)
+        script = config.bridge_dir / BRIDGE_SCRIPT_NAME
+        script.write_text(report.bridge_script_content, encoding="utf-8")
+        script.chmod(0o755)
     (config.action_d_dir / ACTION_CONF_FILENAME).write_text(report.action_conf_content, encoding="utf-8")
+    for filename, content in report.extra_actions:
+        (config.action_d_dir / filename).write_text(content, encoding="utf-8")
 
     for action in report.plan:
         if action.outcome in ("create", "overwrite_forced", "update"):
@@ -286,6 +409,7 @@ def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[
             action.logpath.touch()
             _share_with_serv(action.logpath)
 
+    enforce_rights(config)
     if reload_fn is not None:
         reload_fn()
 
