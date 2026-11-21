@@ -52,6 +52,8 @@ Tailscale,"已封禁/未封禁"的区别依然可见。这个桥接机制始终�
 
 **永不封禁的网络。** 只有外部流量可能被封禁:本机、Tailscale(`100.64.0.0/10`)和本地网络永远不会被封禁。每个生成的 jail 都会获得一行 `ignoreip`,其列表**由 omega-serv 自身提供**(`omega-serv waf never-auto-block`,对应设置 `options.waf.reputation.never_auto_block`)——这里从不硬编码副本。`[DEFAULT]` 中已定义的 `ignoreip` 会被保留并补充,绝不会被覆盖。Tailscale 桥接从不转发被豁免地址的封禁:在默认设置下它因此不再转发任何内容(外部访客以其真实公网地址到达)。位于本地代理之后的情况除外:见上一段。若找不到 omega-serv 或其版本过旧,则只豁免本机,并在报告中给出警告。已有的安装只有使用 `--apply --force` 才会更新。
 
+**封禁日志（omega-connect）。** 目录中的每个 jail 还带有 `omega-jail-ban-journal` 动作：当 omega-connect 区域存在（`/var/lib/omega-synchro`）时，每次封禁和解封都会发布到那里（来源 `fail2ban:<jail>`），供其他 omega 工具使用，尤其是会忽略 RIPOSTE jail 的 omega-serv Active Defense。对于您的其他 jail（sshd…），`--apply --journal sshd,postfix` 会在 `jail.d/omega-jail-journal.local` 中把同一动作追加到其当前动作之后（`--journal -` 将其移除）；重新加载前会检查配置，若 fail2ban 拒绝则删除该文件。没有区域时不写入任何内容，网络封禁也从不依赖于它。
+
 ## 目录清单
 
 **共 10 个 jail**：6 个基础 jail，只安装一次；4 个 RIPOSTE jail，为**每个** omega-serv 实例分别安装（以其服务名为前缀，例如 `omega-serv-riposte-1h`）。

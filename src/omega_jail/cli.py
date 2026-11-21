@@ -27,10 +27,18 @@ import argparse
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from omega_jail.autodetect import find_fail2ban_base_dir
-from omega_jail.install import DEFAULT_BRIDGE_DIR, InstallConfig, InstallReport, apply, prepare
+from omega_jail.install import (
+    DEFAULT_BRIDGE_DIR,
+    JOURNAL_OVERRIDE_FILENAME,
+    InstallConfig,
+    InstallReport,
+    apply,
+    prepare,
+)
 from omega_jail.support import SUPPORT_COMMANDS, run_support
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR
 
@@ -83,6 +91,28 @@ def _print_report(report: InstallReport) -> None:
             print("ignoreip deja defini dans [DEFAULT] : conserve et complete (jamais ecrase).")
         if report.exemptions.warning:
             print(f"avertissement : {report.exemptions.warning}", file=sys.stderr)
+    if report.journal_override_content:
+        names = [line[1:-1] for line in report.journal_override_content.splitlines() if line.startswith("[")]
+        print(f"Journal des bans (omega-connect) : aussi publie pour {', '.join(names)} "
+              f"(jail.d/{JOURNAL_OVERRIDE_FILENAME}).")
+    elif report.journal_override_content == "":
+        print(f"Journal des bans : jail.d/{JOURNAL_OVERRIDE_FILENAME} retire (aucun jail existant choisi).")
+    for name in report.journal_missing:
+        print(f"avertissement : jail {name!r} introuvable, ignore pour le journal des bans.", file=sys.stderr)
+
+
+def _reload_with_check(override: Path) -> Callable[[], None]:
+    """Configuration testee (fail2ban-client -t) avant le rechargement : si elle echoue alors que le fichier
+    du journal des bans (--journal) est present, il est retire (ancienne version gardee en .bak) - jamais un
+    fail2ban qui ne redemarre plus a cause de lui (2026-11-21)."""
+    def reload() -> None:
+        check = subprocess.run(["fail2ban-client", "-t"], check=False, capture_output=True, text=True)
+        if check.returncode != 0 and override.exists():
+            override.unlink(missing_ok=True)
+            print(f"avertissement : configuration fail2ban refusee avec {override.name} - fichier retire : "
+                  f"{(check.stderr or check.stdout).strip()[-400:]}", file=sys.stderr)
+        _default_reload()
+    return reload
 
 
 def _default_reload() -> None:
@@ -122,11 +152,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--apply", action="store_true", help="Ecrit reellement les fichiers (defaut : dry-run)")
     parser.add_argument(
+        "--journal", default=None, metavar="JAILS",
+        help="Jails existants hors catalogue (ex. sshd,postfix) qui publient aussi leurs bans dans le journal "
+             "des bans d'omega-connect ; '-' pour n'en garder aucun (les jails du catalogue publient toujours)",
+    )
+    parser.add_argument(
         "--pending", action="store_true",
         help="Liste seulement les jails restant a creer ou a mettre a jour, un nom par ligne (lecture seule, "
              "sans root) - utilise par install.sh lors d'une mise a jour",
     )
     return parser
+
+
+def _journal_jails(value: str | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    return tuple(name.strip() for name in value.split(",") if name.strip() and name.strip() != "-")
 
 
 def _resolve_serv_root(args: argparse.Namespace, omega_jail_root: Path) -> Path | None:
@@ -198,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         update=args.update,
         only=args.only,
         bridge_dir=args.bridge_dir or DEFAULT_BRIDGE_DIR,
+        journal_jails=_journal_jails(args.journal),
     )
 
     try:
@@ -227,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         print("erreur : --apply necessite les privileges root.", file=sys.stderr)
         return 1
 
-    apply(report, config, reload_fn=_default_reload)
+    apply(report, config, reload_fn=_reload_with_check(jail_d_dir / JOURNAL_OVERRIDE_FILENAME))
     print("\nApplique.")
     return 0
 

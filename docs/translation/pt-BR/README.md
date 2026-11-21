@@ -58,6 +58,8 @@ todos os outros.
 
 **Redes nunca banidas.** Só o tráfego externo pode ser banido: o host local, o Tailscale (`100.64.0.0/10`) e a rede local nunca são. Cada jail gerada recebe uma linha `ignoreip` com a lista **fornecida pelo próprio omega-serv** (`omega-serv waf never-auto-block`, configuração `options.waf.reputation.never_auto_block`) — nunca uma cópia fixa aqui. Um `ignoreip` já definido em `[DEFAULT]` é mantido e completado, nunca sobrescrito. A ponte Tailscale nunca repassa o ban de um endereço isento: com as configurações padrão, ela não repassa mais nada (seus visitantes externos chegam com o endereço público real). Exceto atrás de um proxy local: veja o parágrafo anterior. Se o omega-serv não for encontrado ou for antigo demais, só o host local fica isento, com um aviso no relatório. Uma instalação existente só é atualizada com `--apply --force`.
 
+**Diário de banimentos (omega-connect).** Cada jail do catálogo também leva a ação `omega-jail-ban-journal`: quando a zona do omega-connect existe (`/var/lib/omega-synchro`), cada banimento e remoção é publicado ali (origem `fail2ban:<jail>`) para as outras ferramentas omega, em especial o Active Defense do omega-serv, que ignora os jails RIPOSTE. Para seus outros jails (sshd…), `--apply --journal sshd,postfix` acrescenta a mesma ação à ação atual deles em `jail.d/omega-jail-journal.local` (`--journal -` a remove); a configuração é testada antes do recarregamento e o arquivo é removido se o fail2ban a recusar. Sem zona nada é escrito, e o banimento de rede nunca depende disso.
+
 ## Catálogo
 
 **10 jails**: 6 jails básicos, instalados uma única vez, e 4 jails RIPOSTE, instalados para **cada** instância do omega-serv (com o nome do seu serviço como prefixo, ex. `omega-serv-riposte-1h`).

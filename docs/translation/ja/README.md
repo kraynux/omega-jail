@@ -56,6 +56,8 @@ Tailscale の範囲（既定は `100.64.0.0/10`）に入る場合、BAN は omeg
 
 **決して BAN されないネットワーク。** BAN されうるのは外部の通信だけです。ローカルホスト、Tailscale（`100.64.0.0/10`）、ローカルネットワークは決して BAN されません。生成される各 jail には、**omega-serv 自身が提供する**リスト（`omega-serv waf never-auto-block`、設定 `options.waf.reputation.never_auto_block`）を含む `ignoreip` 行が付きます。ここに固定のコピーを書くことはありません。`[DEFAULT]` にすでに定義された `ignoreip` は残したうえで補完し、上書きしません。Tailscale ブリッジは除外対象アドレスの BAN を決して引き継ぎません。そのため既定の設定では、もう何も引き継ぎません（外部の訪問者は実際の公開アドレスで届きます）。ただし、ローカルプロキシの背後にある場合は前の段落を参照してください。omega-serv が見つからないか古すぎる場合は、ローカルホストだけを除外し、レポートに警告を出します。既存のインストールは `--apply --force` を指定したときだけ更新されます。
 
+**BAN ジャーナル（omega-connect）。** カタログの各 jail には `omega-jail-ban-journal` アクションも付きます。omega-connect のゾーン（`/var/lib/omega-synchro`）がある場合、すべての BAN と解除がそこに公開され（オリジン `fail2ban:<jail>`）、他の omega ツール、特に RIPOSTE の jail を無視する omega-serv の Active Defense が読み取ります。その他の jail（sshd…）には、`--apply --journal sshd,postfix` が `jail.d/omega-jail-journal.local` で現在のアクションに同じアクションを追加します（`--journal -` で削除）。再読み込みの前に設定を検査し、fail2ban が拒否した場合はファイルを削除します。ゾーンがなければ何も書き込まれず、ネットワーク BAN がこれに依存することはありません。
+
 ## カタログ
 
 **全 10 jail**：基本の 6 jail は一度だけインストールされ、RIPOSTE の 4 jail は omega-serv の**各**インスタンスごとにインストールされます（サービス名が接頭辞になります。例：`omega-serv-riposte-1h`）。

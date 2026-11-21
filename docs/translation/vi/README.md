@@ -56,6 +56,8 @@ không bao giờ làm hỏng lệnh cấm mạng thông thường cho mọi ngư
 
 **Các mạng không bao giờ bị cấm.** Chỉ lưu lượng bên ngoài mới có thể bị cấm: máy cục bộ, Tailscale (`100.64.0.0/10`) và mạng nội bộ thì không bao giờ. Mỗi jail được tạo nhận một dòng `ignoreip` với danh sách **do chính omega-serv cung cấp** (`omega-serv waf never-auto-block`, thiết lập `options.waf.reputation.never_auto_block`) — không bao giờ là bản chép cứng ở đây. Một `ignoreip` đã có trong `[DEFAULT]` được giữ lại và bổ sung, không bao giờ bị ghi đè. Cầu nối Tailscale không bao giờ chuyển lệnh cấm của một địa chỉ được miễn: với thiết lập mặc định, nó không còn chuyển gì nữa (khách bên ngoài của bạn đến bằng địa chỉ công khai thật). Trừ khi ở sau một proxy cục bộ: xem đoạn trước. Nếu không tìm thấy omega-serv hoặc phiên bản quá cũ, chỉ máy cục bộ được miễn, kèm cảnh báo trong báo cáo. Một bản cài đặt sẵn có chỉ được cập nhật với `--apply --force`.
 
+**Nhật ký cấm (omega-connect).** Mỗi jail trong danh mục cũng mang action `omega-jail-ban-journal`: khi vùng omega-connect tồn tại (`/var/lib/omega-synchro`), mọi lệnh cấm và gỡ cấm được công bố ở đó (nguồn `fail2ban:<jail>`) cho các công cụ omega khác, nhất là Active Defense của omega-serv, vốn bỏ qua các jail RIPOSTE. Với các jail khác của bạn (sshd…), `--apply --journal sshd,postfix` thêm cùng action đó vào action hiện tại của chúng trong `jail.d/omega-jail-journal.local` (`--journal -` gỡ bỏ); cấu hình được kiểm tra trước khi nạp lại và tệp bị gỡ nếu fail2ban từ chối. Không có vùng thì không ghi gì, và lệnh cấm mạng không bao giờ phụ thuộc vào nó.
+
 ## Danh mục
 
 **10 jail**: 6 jail cơ bản, cài một lần, và 4 jail RIPOSTE, cài cho **mỗi** phiên bản omega-serv (có tiền tố là tên dịch vụ của nó, ví dụ `omega-serv-riposte-1h`).

@@ -56,6 +56,8 @@ jail에는 브리지가 들어 있습니다. 차단된 IP가 Tailscale 범위(�
 
 **절대 차단되지 않는 네트워크.** 외부 트래픽만 차단될 수 있습니다. 로컬 호스트, Tailscale(`100.64.0.0/10`), 로컬 네트워크는 절대 차단되지 않습니다. 생성되는 각 jail에는 **omega-serv 자신이 제공하는** 목록(`omega-serv waf never-auto-block`, 설정 `options.waf.reputation.never_auto_block`)이 담긴 `ignoreip` 줄이 붙습니다. 여기에 고정된 사본을 두지 않습니다. `[DEFAULT]`에 이미 정의된 `ignoreip`는 유지하고 보완할 뿐 절대 덮어쓰지 않습니다. Tailscale 브리지는 예외 대상 주소의 차단을 절대 전달하지 않으므로, 기본 설정에서는 더 이상 아무것도 전달하지 않습니다(외부 방문자는 실제 공인 주소로 들어옵니다). 단, 로컬 프록시 뒤에 있는 경우는 앞 단락을 참고하세요. omega-serv를 찾을 수 없거나 너무 오래된 경우에는 로컬 호스트만 예외로 하고, 보고서에 경고를 남깁니다. 기존 설치는 `--apply --force`로만 갱신됩니다.
 
+**차단 저널(omega-connect).** 카탈로그의 모든 jail에는 `omega-jail-ban-journal` 액션도 붙습니다. omega-connect 존(`/var/lib/omega-synchro`)이 있으면 모든 차단과 해제가 그곳에 게시되며(출처 `fail2ban:<jail>`), 다른 omega 도구, 특히 RIPOSTE jail을 무시하는 omega-serv의 Active Defense가 이를 읽습니다. 다른 jail(sshd…)에는 `--apply --journal sshd,postfix`가 `jail.d/omega-jail-journal.local`에서 현재 액션에 같은 액션을 추가합니다(`--journal -`로 제거). 다시 불러오기 전에 설정을 검사하고, fail2ban이 거부하면 파일을 제거합니다. 존이 없으면 아무것도 기록되지 않으며, 네트워크 차단은 이에 의존하지 않습니다.
+
 ## 카탈로그
 
 **총 10개 jail**: 기본 jail 6개는 한 번만 설치되고, RIPOSTE jail 4개는 omega-serv **인스턴스마다** 설치됩니다(서비스 이름이 접두사로 붙음, 예: `omega-serv-riposte-1h`).

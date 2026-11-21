@@ -197,3 +197,62 @@ def default_ignoreip_defined(
         if block is not None and re.search(r"^[ \t]*ignoreip[ \t]*=", block, re.MULTILINE):
             return True
     return False
+
+
+def _raw_option(block: str, option: str) -> str | None:
+    """Valeur brute d'une option ini fail2ban, lignes de continuation (indentees) comprises."""
+    lines = block.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(rf'^{re.escape(option)}\s*=\s*(.*)$', line)
+        if not match:
+            continue
+        values = [match.group(1).strip()]
+        for following in lines[index + 1:]:
+            if following[:1] in (" ", "\t") and following.strip() and not following.lstrip().startswith(("#", ";")):
+                values.append(following.strip())
+            elif following.strip():
+                break
+        return "\n".join(value for value in values if value)
+    return None
+
+
+def read_jail_actions(
+    names: list[str],
+    jail_d_dir: str = "/etc/fail2ban/jail.d",
+    jail_conf_path: str | None = None,
+    jail_local_path: str | None = None,
+    *,
+    exclude_filename: str = "",
+) -> dict[str, str | None]:
+    """Action effective (texte brut) de chaque jail nomme, dans l'ordre de chargement de fail2ban : la sienne,
+    sinon celle de [DEFAULT], sinon `%(action_)s`. None si le jail n'existe sur aucun fichier. Le fichier
+    `exclude_filename` (l'action ajoutee par omega-jail elle-meme) n'est jamais lu (journal des bans, 2026-11-21)."""
+    contents: list[str] = []
+    for path in _candidate_files(jail_d_dir, jail_conf_path, jail_local_path):
+        if exclude_filename and os.path.basename(path) == exclude_filename:
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                contents.append(handle.read())
+        except OSError:
+            continue
+    default_action = "%(action_)s"
+    for content in contents:
+        block = extract_section_block(content, "DEFAULT")
+        value = _raw_option(block, "action") if block is not None else None
+        if value:
+            default_action = value
+    result: dict[str, str | None] = {}
+    for name in names:
+        found = False
+        action: str | None = None
+        for content in contents:
+            block = extract_section_block(content, name)
+            if block is None:
+                continue
+            found = True
+            value = _raw_option(block, "action")
+            if value:
+                action = value
+        result[name] = (action or default_action) if found else None
+    return result

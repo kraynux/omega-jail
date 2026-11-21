@@ -2,11 +2,21 @@
 
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/).
 
-## [1.2.1] — construite le 2026-11-10, non publiée
+## [1.2.1] — construite le 2026-11-10, reconstruite le 2026-11-21, non publiée
 
 Correctifs issus de l'étude de l'interconnecteur de la suite (`~/DEV/CONNECT/`), étapes 1 et 2.
 
 ### Ajouté
+
+- **Journal des bans pour les autres outils omega** (plan omega-connect, phase 3, 2026-11-21 ; répartition
+  décidée par l'auteur : omega-connect = liaison, omega-jail = action fail2ban, omega-fire = ses propres bans).
+  Nouvelle action `omega-jail-ban-journal` (copie autonome root dans `/usr/local/lib/omega-jail/`, comme le
+  pont) ajoutée à chaque jail du catalogue : chaque ban et levée est écrit dans `/var/lib/omega-synchro/bans/`
+  (`journal.jsonl`, `actifs.json`, origine `fail2ban:<jail>`), même format et même verrou qu'omega-lib 0.3.0.
+  `--journal sshd,postfix` ajoute l'action à des jails existants hors catalogue (leur action actuelle reprise
+  dans `jail.d/omega-jail-journal.local`, `--journal -` le retire) ; `fail2ban-client -t` avant le
+  rechargement, fichier retiré si la configuration est refusée. Toujours fail-open : sans zone, rien n'est
+  écrit et le ban réseau n'en dépend jamais. Jails installés : `--apply --update` pour recevoir l'action.
 
 - **Jeton d'installation** `var/omega-jeton.json` (étape 2) : `./omega-jail.sh synchro jeton`, lancé par
   `install.sh`, dit au futur omega-connect qu'Omega-Jail est installé, où, et dans quelle version. Écrit sous

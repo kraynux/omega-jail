@@ -20,6 +20,8 @@ from omega_jail.duplicates import CatalogEntryStatus
 
 FILTER_NAME_PREFIX = "omega-jail-"
 BRIDGE_ACTION_NAME = "omega-jail-tailscale-bridge"
+JOURNAL_ACTION_NAME = "omega-jail-ban-journal"
+"""Journal des bans (plan omega-connect, phase 3, 2026-11-21) : chaque ban du jail publie pour Active Defense."""
 
 
 def filter_name(jail_name: str) -> str:
@@ -68,7 +70,7 @@ def render_jail(
         f"bantime = {jail.bantime}\n"
     ) + render_ignoreip(ignoreip, keep_default_ignoreip)
     if include_bridge_action:
-        content += f"action = %(action_)s\n          {bridge_action}\n"
+        content += f"action = %(action_)s\n          {bridge_action}\n          {JOURNAL_ACTION_NAME}\n"
     return content
 
 

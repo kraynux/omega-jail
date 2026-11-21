@@ -11,19 +11,31 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from string import Template
 from typing import Literal
 
 from omega_jail.catalog import Catalog, load_catalog
 from omega_jail.detect import DEFAULT_CONFIG_REL_PATH, detect
 from omega_jail.duplicates import CatalogEntryStatus, check_catalog_against_existing
 from omega_jail.exemptions import ExemptNetworks, read_exempt_networks
-from omega_jail.existing_jails import default_ignoreip_defined, existing_logpaths
+from omega_jail.existing_jails import default_ignoreip_defined, existing_logpaths, read_jail_actions
 from omega_jail.instances import ServInstance, detect_instances
-from omega_jail.render import BRIDGE_ACTION_NAME, RenderedJail, filter_name, render_entry
+from omega_jail.render import (
+    BRIDGE_ACTION_NAME,
+    JOURNAL_ACTION_NAME,
+    RenderedJail,
+    filter_name,
+    render_entry,
+)
 from omega_jail.tailscale_bridge import DEFAULT_TAILSCALE_CIDR, find_servcli, render_action_conf
 
 ACTION_CONF_FILENAME = "omega-jail-tailscale-bridge.conf"
 BRIDGE_SCRIPT_NAME = "omega-jail-tailscale-bridge.py"
+JOURNAL_ACTION_FILENAME = f"{JOURNAL_ACTION_NAME}.conf"
+JOURNAL_SCRIPT_NAME = "omega-jail-ban-journal.py"
+JOURNAL_OVERRIDE_FILENAME = "omega-jail-journal.local"
+"""Jails existants choisis avec --journal (sshd...) : leur action actuelle + l'action du journal (2026-11-21)."""
+JOURNAL_TEMPLATE_PATH = Path(__file__).resolve().parent.parent.parent / "action.d" / JOURNAL_ACTION_FILENAME
 DEFAULT_BRIDGE_DIR = Path("/usr/local/lib/omega-jail")
 """Copie systeme du pont (2026-11-10) : fail2ban (root) l'executait depuis le .venv d'omega-jail, un dossier
 modifiable par l'utilisateur (execution root d'un code non protege), et supprimer omega-jail cassait le pont
@@ -48,6 +60,37 @@ def render_bridge_script() -> str:
     header = ("#!/usr/bin/env python3\n# Copie generee par omega-jail --apply : NE PAS MODIFIER (regeneree a chaque --apply).\n"
               "# Lancee par fail2ban (actions omega-jail-tailscale-bridge*.conf).\n")
     return header + source.replace(marker, "\n" + inlined + "\n")
+
+
+def render_journal_script() -> str:
+    """Source autonome de l'action du journal des bans (bibliotheque standard seule)."""
+    from omega_jail import ban_journal
+
+    header = ("#!/usr/bin/env python3\n# Copie generee par omega-jail --apply : NE PAS MODIFIER (regeneree a chaque --apply).\n"
+              "# Lancee par fail2ban (action omega-jail-ban-journal.conf).\n")
+    return header + inspect.getsource(ban_journal)
+
+
+def render_journal_action_conf(journal_cli: str) -> str:
+    return Template(JOURNAL_TEMPLATE_PATH.read_text(encoding="utf-8")).substitute(journal_cli=journal_cli)
+
+
+def render_journal_override(jails: dict[str, str]) -> str:
+    """jail.d/omega-jail-journal.local : pour chaque jail existant choisi, son action actuelle (texte brut,
+    interpolations comprises) suivie de l'action du journal. Vide si aucun jail."""
+    if not jails:
+        return ""
+    lines = ["# Genere par Omega-Jail (--journal) : journal des bans, plan omega-connect phase 3.",
+             "# NE PAS MODIFIER : regenere a chaque --apply --journal. Pour changer l'action d'un de ces jails,",
+             "# modifiez-la a sa place habituelle puis relancez omega-jail --apply --journal ...", ""]
+    for name, action in jails.items():
+        parts = [part.strip() for part in action.splitlines() if part.strip()]
+        parts = [part for part in parts if part.split("[", 1)[0] != JOURNAL_ACTION_NAME] + [JOURNAL_ACTION_NAME]
+        lines.append(f"[{name}]")
+        lines.append(f"action = {parts[0]}")
+        lines += [f"         {part}" for part in parts[1:]]
+        lines.append("")
+    return "\n".join(lines)
 
 
 def bridge_action_name(instance: ServInstance | None) -> str:
@@ -103,6 +146,9 @@ class InstallConfig:
     instances: tuple[ServInstance, ...] | None = None
     """Instances omega-serv pour les jails `per_instance` (RIPOSTE) ; None = detection reelle
     (instances.py : unites systemd + registre d'omega-serv, `serv_root` compris)."""
+    journal_jails: tuple[str, ...] | None = None
+    """Jails existants (hors catalogue) qui publient aussi leurs bans (--journal sshd,...) ; None = le fichier
+    jail.d/omega-jail-journal.local n'est pas touche, () = il est retire (2026-11-21)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +163,12 @@ class InstallReport:
     extra_actions: tuple[tuple[str, str], ...] = ()
     """(nom de fichier, contenu) des actions du pont des AUTRES instances (une par instance)."""
     bridge_script_content: str = ""
+    journal_action_content: str = ""
+    journal_script_content: str = ""
+    journal_override_content: str | None = None
+    """Contenu de jail.d/omega-jail-journal.local ; None = non touche, "" = retire."""
+    journal_missing: tuple[str, ...] = ()
+    """Jails demandes avec --journal mais introuvables (ignores)."""
 
     def action_conf_outdated(self, action_d_dir: Path, bridge_dir: Path | None = None) -> bool:
         """L'action du pont installee (ou celle d'une instance, ou la copie systeme du pont) differe de celle a
@@ -125,6 +177,10 @@ class InstallReport:
         wanted += [(action_d_dir / name, content) for name, content in self.extra_actions]
         if bridge_dir is not None and self.bridge_script_content:
             wanted.append((bridge_dir / BRIDGE_SCRIPT_NAME, self.bridge_script_content))
+        if self.journal_action_content:
+            wanted.append((action_d_dir / JOURNAL_ACTION_FILENAME, self.journal_action_content))
+        if bridge_dir is not None and self.journal_script_content:
+            wanted.append((bridge_dir / JOURNAL_SCRIPT_NAME, self.journal_script_content))
         try:
             return any(path.read_text(encoding="utf-8") != content for path, content in wanted)
         except OSError:
@@ -298,11 +354,29 @@ def prepare(config: InstallConfig, *, catalog_path: Path | None = None) -> Insta
         exempt=",".join(exemptions.networks),
         relay_all=detected.behind_local_proxy,
     )
+    override, missing = _journal_override(config, {action.name for action in plan})
     return InstallReport(
         plan=plan, action_conf_content=action_conf_content, exemptions=exemptions, keep_default_ignoreip=keep_default,
         relay_all=detected.behind_local_proxy, extra_actions=tuple(extra_actions),
         bridge_script_content=render_bridge_script(),
+        journal_action_content=render_journal_action_conf(f"{system_python()} {config.bridge_dir / JOURNAL_SCRIPT_NAME}"),
+        journal_script_content=render_journal_script(),
+        journal_override_content=override, journal_missing=missing,
     )
+
+
+def _journal_override(config: InstallConfig, catalog_names: set[str]) -> tuple[str | None, tuple[str, ...]]:
+    if config.journal_jails is None:
+        return None, ()
+    wanted = [name for name in dict.fromkeys(config.journal_jails) if name and name not in catalog_names]
+    actions = read_jail_actions(
+        wanted, jail_d_dir=str(config.jail_d_dir),
+        jail_conf_path=str(config.jail_conf_path) if config.jail_conf_path else None,
+        jail_local_path=str(config.jail_local_path) if config.jail_local_path else None,
+        exclude_filename=JOURNAL_OVERRIDE_FILENAME,
+    )
+    found = {name: action for name, action in actions.items() if action is not None}
+    return render_journal_override(found), tuple(name for name, action in actions.items() if action is None)
 
 
 def _real(path: Path) -> Path:
@@ -376,8 +450,9 @@ def enforce_rights(config: InstallConfig) -> None:
     script = config.bridge_dir / BRIDGE_SCRIPT_NAME
     if config.bridge_dir.is_dir() and not config.bridge_dir.is_symlink():
         _set_rights(config.bridge_dir, BRIDGE_MODE)
-    if script.is_file() and not script.is_symlink():
-        _set_rights(script, BRIDGE_MODE)
+    for system_script in (script, config.bridge_dir / JOURNAL_SCRIPT_NAME):
+        if system_script.is_file() and not system_script.is_symlink():
+            _set_rights(system_script, BRIDGE_MODE)
 
 
 def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[], None] | None = None) -> InstallReport:
@@ -392,6 +467,19 @@ def apply(report: InstallReport, config: InstallConfig, *, reload_fn: Callable[[
         script.write_text(report.bridge_script_content, encoding="utf-8")
         script.chmod(0o755)
     (config.action_d_dir / ACTION_CONF_FILENAME).write_text(report.action_conf_content, encoding="utf-8")
+    if report.journal_script_content:
+        config.bridge_dir.mkdir(parents=True, exist_ok=True)
+        journal_script = config.bridge_dir / JOURNAL_SCRIPT_NAME
+        journal_script.write_text(report.journal_script_content, encoding="utf-8")
+        journal_script.chmod(0o755)
+    if report.journal_action_content:
+        (config.action_d_dir / JOURNAL_ACTION_FILENAME).write_text(report.journal_action_content, encoding="utf-8")
+    override = config.jail_d_dir / JOURNAL_OVERRIDE_FILENAME
+    if report.journal_override_content:
+        _keep_previous(override)
+        override.write_text(report.journal_override_content, encoding="utf-8")
+    elif report.journal_override_content == "":
+        override.unlink(missing_ok=True)
     for filename, content in report.extra_actions:
         (config.action_d_dir / filename).write_text(content, encoding="utf-8")
 

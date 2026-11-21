@@ -58,6 +58,8 @@ ban fail for everyone else.
 
 **Networks never banned.** Only external traffic can be banned: localhost, Tailscale (`100.64.0.0/10`) and the local network never are. Each generated jail gets an `ignoreip` line with the list **provided by omega-serv itself** (`omega-serv waf never-auto-block`, setting `options.waf.reputation.never_auto_block`) — never a hard-coded copy here. An `ignoreip` already defined in `[DEFAULT]` is kept and extended, never overwritten. The Tailscale bridge never relays the ban of an exempt address: with the default settings it therefore relays nothing anymore (your external visitors arrive with their real public address). Except behind a local proxy: see the previous paragraph. If omega-serv is missing or too old, only localhost is exempt, with a warning in the report. An existing installation is only updated with `--apply --force`.
 
+**Ban journal (omega-connect).** Every catalogue jail also carries the `omega-jail-ban-journal` action: when the omega-connect zone exists (`/var/lib/omega-synchro`), every ban and unban is published there (origin `fail2ban:<jail>`) for the other omega tools, notably omega-serv's Active Defense, which ignores RIPOSTE jails. For your other jails (sshd…), `--apply --journal sshd,postfix` adds the same action to their current action in `jail.d/omega-jail-journal.local` (`--journal -` removes it); the configuration is tested before reloading and the file is removed if fail2ban rejects it. Without the zone nothing is written, and the network ban never depends on it.
+
 ## Catalog
 
 **10 jails**: 6 base jails, installed once, and 4 RIPOSTE jails, installed for **each** omega-serv instance (prefixed with its service name, e.g. `omega-serv-riposte-1h`).

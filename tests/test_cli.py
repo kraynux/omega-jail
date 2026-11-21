@@ -207,6 +207,12 @@ def test_pending_is_empty_when_everything_is_installed(tmp_path: Path, capsys: p
     (tmp_path / "fail2ban" / "omega-jail-lib").mkdir(parents=True)
     (tmp_path / "fail2ban" / "omega-jail-lib" / "omega-jail-tailscale-bridge.py").write_text(
         report.bridge_script_content, encoding="utf-8")
+    # action du journal des bans (2026-11-21) deja a jour elle aussi
+    from omega_jail.install import JOURNAL_ACTION_FILENAME, JOURNAL_SCRIPT_NAME
+    (tmp_path / "fail2ban" / "action.d" / JOURNAL_ACTION_FILENAME).write_text(
+        report.journal_action_content, encoding="utf-8")
+    (tmp_path / "fail2ban" / "omega-jail-lib" / JOURNAL_SCRIPT_NAME).write_text(
+        report.journal_script_content, encoding="utf-8")
     # jail installe mais different du catalogue (ancienne version) : a mettre a jour
     exit_code = main([*_common_args(tmp_path), "--pending"])
     assert exit_code == 0
