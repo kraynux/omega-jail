@@ -2,6 +2,13 @@
 
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/).
 
+
+## À venir (pas encore dans une archive)
+
+- **Vérifier les mises à jour : trois sources** (procédure de l'auteur, 2026-11-22) : la Release GitHub ; si
+  absente ou injoignable, le site kraynux ; si absent ou injoignable, le site craftdark. Les liens d'archive et
+  de nouveautés sont ceux de la source qui a répondu (avant : le seul site kraynux).
+
 ## [1.2.1] — construite le 2026-11-10, reconstruite le 2026-11-21, non publiée
 
 Correctifs issus de l'étude de l'interconnecteur de la suite (`~/DEV/CONNECT/`), étapes 1 et 2.

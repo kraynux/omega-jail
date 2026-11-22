@@ -29,3 +29,11 @@ build/
 
 # chemin omega-serv enregistre a l'installation - propre a chaque machine
 .serv-root
+
+# Données personnelles et secrets : jamais publiés (correctif du 2026-11-22, après une fuite de var/ d'omega-stress)
+**/omega-jeton.json
+**/declaration.json
+var/distributed/
+var/**/*.key
+var/**/settings.json
+var/**/targets.json

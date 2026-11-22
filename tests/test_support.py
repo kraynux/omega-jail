@@ -102,12 +102,36 @@ def test_unreachable_reception_records_nothing(root: Path, monkeypatch: pytest.M
 def test_version_check(root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["version"]) == 0
     assert "omega-jail 1.2.0" in capsys.readouterr().out
-    monkeypatch.setattr(support, "fetch_sha_list", lambda version: "a  omega-jail-1.1.1.tar.gz\nb  omega-jail-1.3.0.tar.gz")
+    monkeypatch.setattr(support, "github_latest", lambda version: None)  # pas de Release GitHub
+    monkeypatch.setattr(support, "fetch_sha_list",
+                        lambda version, url: "a  omega-jail-1.1.1.tar.gz\nb  omega-jail-1.3.0.tar.gz")
     assert main(["version", "--check"]) == 0
     out = capsys.readouterr().out
-    assert "Nouvelle version disponible : 1.3.0" in out and "omega-jail-1.3.0.tar.gz" in out
-    monkeypatch.setattr(support, "fetch_sha_list", lambda version: "a  omega-jail-1.2.0.tar.gz")
+    assert "Nouvelle version disponible : 1.3.0" in out and "kraynux.snake-mackarel.ts.net/omega-jail/download/omega-jail-1.3.0.tar.gz" in out
+    monkeypatch.setattr(support, "fetch_sha_list", lambda version, url: "a  omega-jail-1.2.0.tar.gz")
     assert main(["version", "--check"]) == 0
     assert "derniere version publiee" in capsys.readouterr().out
-    monkeypatch.setattr(support, "fetch_sha_list", lambda version: None)
+    monkeypatch.setattr(support, "fetch_sha_list", lambda version, url: None)
     assert main(["version", "--check"]) == 1
+
+
+def test_version_check_github_puis_kraynux_puis_craftdark(root: Path, monkeypatch: pytest.MonkeyPatch,
+                                                          capsys: pytest.CaptureFixture[str]) -> None:
+    """Procedure de l'auteur (2026-11-22) : GitHub ; si absent ou injoignable, kraynux ; puis craftdark."""
+    asked: list[str] = []
+
+    def sha(version: str, url: str) -> str | None:
+        asked.append(url)
+        return "a  omega-jail-1.4.0.tar.gz" if "craftdark" in url or "github" in url else None
+
+    monkeypatch.setattr(support, "fetch_sha_list", sha)
+    monkeypatch.setattr(support, "github_latest", lambda version: None)
+    assert main(["version", "--check"]) == 0
+    assert "craftdark.snake-mackarel.ts.net/omega-jail/download/omega-jail-1.4.0.tar.gz" in capsys.readouterr().out
+    assert [url.split("/")[2] for url in asked] == ["kraynux.snake-mackarel.ts.net", "craftdark.snake-mackarel.ts.net"]
+    asked.clear()
+    monkeypatch.setattr(support, "github_latest", lambda version: "1.4.0")
+    assert main(["version", "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "github.com/kraynux/omega-jail/releases/download/v1.4.0/omega-jail-1.4.0.tar.gz" in out
+    assert "releases/tag/v1.4.0" in out and len(asked) == 1  # GitHub a repondu : les sites ne sont pas lus

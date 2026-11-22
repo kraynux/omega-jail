@@ -8,8 +8,9 @@ de PyYAML) :
 - `omega-jail declaration status | declare [--continent X] [--pays Y] [--yes] | withdraw [--yes]` :
   declaration anonyme UNE SEULE FOIS (omega-jail n'a pas de service qui enverrait chaque jour). Sans
   `--yes`, rien n'est envoye : le message exact est seulement affiche (comme le dry-run des jails) ;
-- `omega-jail version [--check]` : version installee ; `--check` lit download/sha.txt du site
-  (rien n'est envoye, jamais sans cette option).
+- `omega-jail version [--check]` : version installee ; `--check` cherche la derniere version publiee sur la
+  Release GitHub, puis (absente ou injoignable) sur le site kraynux, puis sur le site craftdark (procedure de
+  l'auteur, 2026-11-22) ; rien n'est envoye, jamais sans cette option.
 
 Message envoye, et rien d'autre : une cle tiree au hasard (sans lien avec la machine), « omega-jail »,
 la version, « unique » et, facultatifs, un continent et un pays pris dans des listes fermees (les
@@ -34,6 +35,8 @@ SOFTWARE = "omega-jail"
 SITE_URL = "https://kraynux.snake-mackarel.ts.net/"
 RECEPTION_URL = SITE_URL + "compteur/"
 DOWNLOAD_URL = SITE_URL + "omega-jail/download/"
+MIRROR_SITE_URL = "https://craftdark.snake-mackarel.ts.net/"
+GITHUB_RELEASES_URL = "https://github.com/kraynux/omega-jail/releases/"
 PAYPAL_URL = "https://paypal.me/kraynux"
 SUPPORT_MAIL = "kraynux@proton.me"
 CONTACT_FORM_URL = SITE_URL + "contact/"
@@ -183,6 +186,44 @@ def fetch_sha_list(version: str, url: str = DOWNLOAD_URL + "sha.txt") -> str | N
         return None
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
+def github_latest(version: str) -> str | None:
+    """Version de la derniere Release GitHub : redirection de `releases/latest`, lue sans la suivre."""
+    request = urllib.request.Request(GITHUB_RELEASES_URL + "latest", headers={"User-Agent": f"{SOFTWARE}/{version}"})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=TIMEOUT_SECONDS) as answer:
+            location = answer.geturl()
+    except urllib.error.HTTPError as error:
+        location = error.headers.get("Location", "") if error.code in (301, 302, 303, 307, 308) else ""
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    found = re.search(r"/releases/tag/v(\d+(?:\.\d+){1,3})/?$", location or "")
+    return found.group(1) if found else None
+
+
+def find_published(version: str) -> tuple[str, str, str] | None:
+    """(derniere version, archive, nouveautes) : la Release GitHub ; si absente ou injoignable, le site kraynux ;
+    si absent ou injoignable, le site craftdark. None : aucune source ne repond."""
+    tag = github_latest(version)
+    if tag is not None:
+        sha_list = fetch_sha_list(version, f"{GITHUB_RELEASES_URL}download/v{tag}/sha.txt")
+        latest = latest_published(sha_list) if sha_list else None
+        if latest is not None:
+            return (latest, f"{GITHUB_RELEASES_URL}download/v{latest}/omega-jail-{latest}.tar.gz",
+                    f"{GITHUB_RELEASES_URL}tag/v{latest}")
+    for site in (SITE_URL, MIRROR_SITE_URL):
+        base = site + "omega-jail/download/"
+        sha_list = fetch_sha_list(version, base + "sha.txt")
+        latest = latest_published(sha_list) if sha_list else None
+        if latest is not None:
+            return latest, f"{base}omega-jail-{latest}.tar.gz", f"{base}omega-jail-{latest}-nouveautes.txt"
+    return None
+
+
 # ------------------------------------------------------------------------------ commandes
 SUPPORT_COMMANDS = ("contact", "declaration", "version")
 
@@ -312,17 +353,17 @@ def _version(version: str, *, check: bool) -> int:
     print(f"omega-jail {version}")
     if not check:
         return 0
-    sha_list = fetch_sha_list(version)
-    latest = latest_published(sha_list) if sha_list else None
+    found = find_published(version)
+    latest = found[0] if found is not None else None
     installed_key = version_key(version)
-    if latest is None or installed_key is None:
+    if found is None or latest is None or installed_key is None:
         print("Site injoignable ou liste des versions illisible : reessayez plus tard.")
         return 1
     latest_key = version_key(latest) or ()
     if latest_key > installed_key:
         print(f"Nouvelle version disponible : {latest}.")
-        print(f"Archive : {DOWNLOAD_URL}omega-jail-{latest}.tar.gz")
-        print(f"Nouveautes : {DOWNLOAD_URL}omega-jail-{latest}-nouveautes.txt")
+        print(f"Archive : {found[1]}")
+        print(f"Nouveautes : {found[2]}")
     elif latest_key < installed_key:
         print(f"Votre version est plus recente que la derniere publiee ({latest}) : version en cours, "
               "pas encore publiee.")
