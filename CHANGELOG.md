@@ -5,7 +5,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/).
 
 ## À venir (pas encore dans une archive)
 
-- **Vérifier les mises à jour : trois sources** (procédure de l'auteur, 2026-11-22) : la Release GitHub ; si
+- **Vérifier les mises à jour : trois sources** (procédure, 2026-11-22) : la Release GitHub ; si
   absente ou injoignable, le site kraynux ; si absent ou injoignable, le site craftdark. Les liens d'archive et
   de nouveautés sont ceux de la source qui a répondu (avant : le seul site kraynux).
 
@@ -16,7 +16,7 @@ Correctifs issus de l'étude de l'interconnecteur de la suite (`~/DEV/CONNECT/`)
 ### Ajouté
 
 - **Journal des bans pour les autres outils omega** (plan omega-connect, phase 3, 2026-11-21 ; répartition
-  décidée par l'auteur : omega-connect = liaison, omega-jail = action fail2ban, omega-fire = ses propres bans).
+  décidée : omega-connect = liaison, omega-jail = action fail2ban, omega-fire = ses propres bans).
   Nouvelle action `omega-jail-ban-journal` (copie autonome root dans `/usr/local/lib/omega-jail/`, comme le
   pont) ajoutée à chaque jail du catalogue : chaque ban et levée est écrit dans `/var/lib/omega-synchro/bans/`
   (`journal.jsonl`, `actifs.json`, origine `fail2ban:<jail>`), même format et même verrou qu'omega-lib 0.3.0.
